@@ -49,7 +49,7 @@ import { useCheckEntitlements } from '@/hooks/misc/useCheckEntitlements'
 import { useAsyncCheckPermissions } from '@/hooks/misc/useCheckPermissions'
 import { useHighAvailability } from '@/hooks/misc/useHighAvailability'
 import { useSelectedProjectQuery } from '@/hooks/misc/useSelectedProject'
-import { DOCS_URL } from '@/lib/constants'
+import { DOCS_URL, IS_PLATFORM } from '@/lib/constants'
 import { preprocessEmptyNumberInput } from '@/lib/forms/zod-number-input'
 
 const formId = 'pooling-configuration-form'
@@ -110,6 +110,15 @@ export const ConnectionPooling = () => {
     ]
   const defaultPoolSize = poolingOptimizations.poolSize ?? 15
   const defaultMaxClientConn = poolingOptimizations.maxClientConn ?? 200
+
+  /**
+   * The compute size is a platform fact. Self-hosted there is no compute instance and no
+   * `infra_compute_size`, so `computeSize` is the empty string and the sentences below would end
+   * "based on your compute size of ." The defaults still apply — they are just not derived from
+   * anything the operator picked — so the clause is dropped rather than the number.
+   */
+  const computeSizeClause =
+    IS_PLATFORM && computeSize ? ` based on your compute size of ${computeSize}` : ''
 
   const form = useForm<z.infer<typeof PoolingConfigurationFormSchema>>({
     resolver: zodResolver(PoolingConfigurationFormSchema),
@@ -295,9 +304,7 @@ export const ConnectionPooling = () => {
                               </p>
                             ) : (
                               <p>
-                                The maximum number of connections made to the underlying Postgres
-                                cluster, per user+db combination. Pool size has a default of{' '}
-                                {defaultPoolSize} based on your compute size of {computeSize}.
+                                {`The maximum number of connections made to the underlying Postgres cluster, per user+db combination. Pool size has a default of ${defaultPoolSize}${computeSizeClause}.`}
                               </p>
                             )
                           }
@@ -370,9 +377,7 @@ export const ConnectionPooling = () => {
                               </p>
                             ) : (
                               <p>
-                                The maximum number of concurrent client connections allowed. This
-                                value is fixed at {defaultMaxClientConn} based on your compute size
-                                of {computeSize} and cannot be changed.{' '}
+                                {`The maximum number of concurrent client connections allowed. This value is fixed at ${defaultMaxClientConn}${computeSizeClause} and cannot be changed.`}{' '}
                                 <InlineLink
                                   href={`${DOCS_URL}/guides/database/connection-management#configuring-supavisors-pool-size`}
                                 >

@@ -31,6 +31,20 @@ vi.mock('common', async (importOriginal) => ({
   useParams: () => ({ ref: 'ha-project' }),
 }))
 
+/**
+ * `IS_PLATFORM` is a module constant read from the environment at import time, so it is mocked
+ * through a getter rather than stubbed: the component reads it on every render, and these tests
+ * need both answers in one file.
+ */
+const { platform } = vi.hoisted(() => ({ platform: { value: false } }))
+
+vi.mock('@/lib/constants', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/constants')>()),
+  get IS_PLATFORM() {
+    return platform.value
+  },
+}))
+
 vi.mock('@/hooks/misc/useCheckPermissions', () => ({
   useAsyncCheckPermissions: mockUseAsyncCheckPermissions,
 }))
@@ -73,6 +87,7 @@ const expectEveryQueryCall = (queryMock: ReturnType<typeof vi.fn>, enabled: bool
 
 describe('ConnectionPooling', () => {
   beforeEach(() => {
+    platform.value = false
     mockUseSelectedProjectQuery.mockReturnValue({
       data: {
         id: 1,
@@ -149,5 +164,53 @@ describe('ConnectionPooling', () => {
 
     expectEveryQueryCall(mockUsePgbouncerConfigQuery, true)
     expectEveryQueryCall(mockUseMaxConnectionsQuery, true)
+  })
+
+  describe('the compute size in the field descriptions', () => {
+    beforeEach(() => {
+      mockUseHighAvailability.mockReturnValue({ isHighAvailability: false, isPending: false })
+      mockUsePgbouncerConfigQuery.mockReturnValue({
+        data: {
+          default_pool_size: 20,
+          max_client_conn: 200,
+          pool_mode: 'transaction',
+          ignore_startup_parameters: 'options,extra_float_digits',
+        },
+        error: undefined,
+        isPending: false,
+        isError: false,
+        isSuccess: true,
+      })
+    })
+
+    it('names the compute size on the platform', () => {
+      platform.value = true
+
+      customRender(<ConnectionPooling />)
+
+      expect(
+        screen.getByText(/Pool size has a default of 15 based on your compute size of Small\./)
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/fixed at 400 based on your compute size of Small and cannot be changed\./)
+      ).toBeInTheDocument()
+    })
+
+    it('leaves it out self-hosted, where a project has no compute size to name', () => {
+      // Self-hosted the addons query never runs and the project carries no `infra_compute_size`,
+      // so the sentence would otherwise end "compute size of ." with nothing in it.
+      mockUseProjectAddonsQuery.mockReturnValue({ data: undefined, isSuccess: false })
+      mockUseSelectedProjectQuery.mockReturnValue({
+        data: { id: 1, ref: 'default', connectionString: 'postgresql://example' },
+      })
+
+      customRender(<ConnectionPooling />)
+
+      expect(screen.getByText(/Pool size has a default of 15\./)).toBeInTheDocument()
+      expect(
+        screen.getByText(/This value is fixed at 200 and cannot be changed\./)
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/compute size/)).not.toBeInTheDocument()
+    })
   })
 })

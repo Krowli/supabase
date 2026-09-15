@@ -276,6 +276,7 @@ import { Route as ApiPlatformAuthRefRecoverRouteImport } from './routes/api/plat
 import { Route as ApiPlatformAuthRefOtpRouteImport } from './routes/api/platform/auth/$ref/otp'
 import { Route as ApiPlatformAuthRefMagiclinkRouteImport } from './routes/api/platform/auth/$ref/magiclink'
 import { Route as ApiPlatformAuthRefInviteRouteImport } from './routes/api/platform/auth/$ref/invite'
+import { Route as ApiPlatformAuthRefConfigRouteImport } from './routes/api/platform/auth/$ref/config'
 import { Route as AuthPartnersStripeProjectsLoginRouteImport } from './routes/_auth/partners/stripe/projects/login'
 import { Route as AppOrgSlugWebhooksEndpointIdRouteImport } from './routes/_app/org/$slug/webhooks/$endpointId'
 import { Route as ProjectRefIntegrationsIdPageIdIndexRouteImport } from './routes/project/$ref/integrations/$id/$pageId/index'
@@ -304,6 +305,7 @@ import { Route as ApiPlatformProjectsRefApiGraphqlRouteImport } from './routes/a
 import { Route as ApiPlatformProjectsRefApiKeysTemporaryRouteImport } from './routes/api/platform/projects/$ref/api-keys/temporary'
 import { Route as ApiPlatformProjectsRefAnalyticsLogDrainsRouteImport } from './routes/api/platform/projects/$ref/analytics/log-drains'
 import { Route as ApiPlatformOrganizationsSlugBillingSubscriptionRouteImport } from './routes/api/platform/organizations/$slug/billing/subscription'
+import { Route as ApiPlatformAuthRefConfigHooksRouteImport } from './routes/api/platform/auth/$ref/config/hooks'
 import { Route as ProjectRefIntegrationsIdPageIdChildIdIndexRouteImport } from './routes/project/$ref/integrations/$id/$pageId/$childId/index'
 import { Route as ApiV1ProjectsRefFunctionsSlugIndexRouteImport } from './routes/api/v1/projects/$ref/functions/$slug/index'
 import { Route as ApiPlatformStorageRefVectorBucketsIdIndexRouteImport } from './routes/api/platform/storage/$ref/vector-buckets/$id/index'
@@ -1801,6 +1803,12 @@ const ApiPlatformAuthRefInviteRoute =
     path: '/api/platform/auth/$ref/invite',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPlatformAuthRefConfigRoute =
+  ApiPlatformAuthRefConfigRouteImport.update({
+    id: '/api/platform/auth/$ref/config',
+    path: '/api/platform/auth/$ref/config',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthPartnersStripeProjectsLoginRoute =
   AuthPartnersStripeProjectsLoginRouteImport.update({
     id: '/partners/stripe/projects/login',
@@ -1968,6 +1976,12 @@ const ApiPlatformOrganizationsSlugBillingSubscriptionRoute =
     id: '/api/platform/organizations/$slug/billing/subscription',
     path: '/api/platform/organizations/$slug/billing/subscription',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPlatformAuthRefConfigHooksRoute =
+  ApiPlatformAuthRefConfigHooksRouteImport.update({
+    id: '/hooks',
+    path: '/hooks',
+    getParentRoute: () => ApiPlatformAuthRefConfigRoute,
   } as any)
 const ProjectRefIntegrationsIdPageIdChildIdIndexRoute =
   ProjectRefIntegrationsIdPageIdChildIdIndexRouteImport.update({
@@ -2317,6 +2331,7 @@ export interface FileRoutesByFullPath {
   '/project/$ref/sql/': typeof ProjectRefSqlIndexRoute
   '/org/$slug/webhooks/$endpointId': typeof AppOrgSlugWebhooksEndpointIdRoute
   '/partners/stripe/projects/login': typeof AuthPartnersStripeProjectsLoginRoute
+  '/api/platform/auth/$ref/config': typeof ApiPlatformAuthRefConfigRouteWithChildren
   '/api/platform/auth/$ref/invite': typeof ApiPlatformAuthRefInviteRoute
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
@@ -2388,6 +2403,7 @@ export interface FileRoutesByFullPath {
   '/project/$ref/storage/analytics/': typeof ProjectRefStorageAnalyticsIndexRoute
   '/project/$ref/storage/files/': typeof ProjectRefStorageFilesIndexRoute
   '/project/$ref/storage/vectors/': typeof ProjectRefStorageVectorsIndexRoute
+  '/api/platform/auth/$ref/config/hooks': typeof ApiPlatformAuthRefConfigHooksRoute
   '/api/platform/organizations/$slug/billing/subscription': typeof ApiPlatformOrganizationsSlugBillingSubscriptionRoute
   '/api/platform/projects/$ref/analytics/log-drains': typeof ApiPlatformProjectsRefAnalyticsLogDrainsRouteWithChildren
   '/api/platform/projects/$ref/api-keys/temporary': typeof ApiPlatformProjectsRefApiKeysTemporaryRoute
@@ -2623,6 +2639,7 @@ export interface FileRoutesByTo {
   '/project/$ref/sql': typeof ProjectRefSqlIndexRoute
   '/org/$slug/webhooks/$endpointId': typeof AppOrgSlugWebhooksEndpointIdRoute
   '/partners/stripe/projects/login': typeof AuthPartnersStripeProjectsLoginRoute
+  '/api/platform/auth/$ref/config': typeof ApiPlatformAuthRefConfigRouteWithChildren
   '/api/platform/auth/$ref/invite': typeof ApiPlatformAuthRefInviteRoute
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
@@ -2694,6 +2711,7 @@ export interface FileRoutesByTo {
   '/project/$ref/storage/analytics': typeof ProjectRefStorageAnalyticsIndexRoute
   '/project/$ref/storage/files': typeof ProjectRefStorageFilesIndexRoute
   '/project/$ref/storage/vectors': typeof ProjectRefStorageVectorsIndexRoute
+  '/api/platform/auth/$ref/config/hooks': typeof ApiPlatformAuthRefConfigHooksRoute
   '/api/platform/organizations/$slug/billing/subscription': typeof ApiPlatformOrganizationsSlugBillingSubscriptionRoute
   '/api/platform/projects/$ref/analytics/log-drains': typeof ApiPlatformProjectsRefAnalyticsLogDrainsRouteWithChildren
   '/api/platform/projects/$ref/api-keys/temporary': typeof ApiPlatformProjectsRefApiKeysTemporaryRoute
@@ -2946,6 +2964,7 @@ export interface FileRoutesById {
   '/project/$ref/sql/': typeof ProjectRefSqlIndexRoute
   '/_app/org/$slug/webhooks/$endpointId': typeof AppOrgSlugWebhooksEndpointIdRoute
   '/_auth/partners/stripe/projects/login': typeof AuthPartnersStripeProjectsLoginRoute
+  '/api/platform/auth/$ref/config': typeof ApiPlatformAuthRefConfigRouteWithChildren
   '/api/platform/auth/$ref/invite': typeof ApiPlatformAuthRefInviteRoute
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
@@ -3017,6 +3036,7 @@ export interface FileRoutesById {
   '/project/$ref/storage/analytics/': typeof ProjectRefStorageAnalyticsIndexRoute
   '/project/$ref/storage/files/': typeof ProjectRefStorageFilesIndexRoute
   '/project/$ref/storage/vectors/': typeof ProjectRefStorageVectorsIndexRoute
+  '/api/platform/auth/$ref/config/hooks': typeof ApiPlatformAuthRefConfigHooksRoute
   '/api/platform/organizations/$slug/billing/subscription': typeof ApiPlatformOrganizationsSlugBillingSubscriptionRoute
   '/api/platform/projects/$ref/analytics/log-drains': typeof ApiPlatformProjectsRefAnalyticsLogDrainsRouteWithChildren
   '/api/platform/projects/$ref/api-keys/temporary': typeof ApiPlatformProjectsRefApiKeysTemporaryRoute
@@ -3268,6 +3288,7 @@ export interface FileRouteTypes {
     | '/project/$ref/sql/'
     | '/org/$slug/webhooks/$endpointId'
     | '/partners/stripe/projects/login'
+    | '/api/platform/auth/$ref/config'
     | '/api/platform/auth/$ref/invite'
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
@@ -3339,6 +3360,7 @@ export interface FileRouteTypes {
     | '/project/$ref/storage/analytics/'
     | '/project/$ref/storage/files/'
     | '/project/$ref/storage/vectors/'
+    | '/api/platform/auth/$ref/config/hooks'
     | '/api/platform/organizations/$slug/billing/subscription'
     | '/api/platform/projects/$ref/analytics/log-drains'
     | '/api/platform/projects/$ref/api-keys/temporary'
@@ -3574,6 +3596,7 @@ export interface FileRouteTypes {
     | '/project/$ref/sql'
     | '/org/$slug/webhooks/$endpointId'
     | '/partners/stripe/projects/login'
+    | '/api/platform/auth/$ref/config'
     | '/api/platform/auth/$ref/invite'
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
@@ -3645,6 +3668,7 @@ export interface FileRouteTypes {
     | '/project/$ref/storage/analytics'
     | '/project/$ref/storage/files'
     | '/project/$ref/storage/vectors'
+    | '/api/platform/auth/$ref/config/hooks'
     | '/api/platform/organizations/$slug/billing/subscription'
     | '/api/platform/projects/$ref/analytics/log-drains'
     | '/api/platform/projects/$ref/api-keys/temporary'
@@ -3896,6 +3920,7 @@ export interface FileRouteTypes {
     | '/project/$ref/sql/'
     | '/_app/org/$slug/webhooks/$endpointId'
     | '/_auth/partners/stripe/projects/login'
+    | '/api/platform/auth/$ref/config'
     | '/api/platform/auth/$ref/invite'
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
@@ -3967,6 +3992,7 @@ export interface FileRouteTypes {
     | '/project/$ref/storage/analytics/'
     | '/project/$ref/storage/files/'
     | '/project/$ref/storage/vectors/'
+    | '/api/platform/auth/$ref/config/hooks'
     | '/api/platform/organizations/$slug/billing/subscription'
     | '/api/platform/projects/$ref/analytics/log-drains'
     | '/api/platform/projects/$ref/api-keys/temporary'
@@ -4075,6 +4101,7 @@ export interface RootRouteChildren {
   ApiPlatformOrganizationsIndexRoute: typeof ApiPlatformOrganizationsIndexRoute
   ApiPlatformProfileIndexRoute: typeof ApiPlatformProfileIndexRoute
   ApiPlatformProjectsIndexRoute: typeof ApiPlatformProjectsIndexRoute
+  ApiPlatformAuthRefConfigRoute: typeof ApiPlatformAuthRefConfigRouteWithChildren
   ApiPlatformAuthRefInviteRoute: typeof ApiPlatformAuthRefInviteRoute
   ApiPlatformAuthRefMagiclinkRoute: typeof ApiPlatformAuthRefMagiclinkRoute
   ApiPlatformAuthRefOtpRoute: typeof ApiPlatformAuthRefOtpRoute
@@ -6015,6 +6042,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPlatformAuthRefInviteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/platform/auth/$ref/config': {
+      id: '/api/platform/auth/$ref/config'
+      path: '/api/platform/auth/$ref/config'
+      fullPath: '/api/platform/auth/$ref/config'
+      preLoaderRoute: typeof ApiPlatformAuthRefConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth/partners/stripe/projects/login': {
       id: '/_auth/partners/stripe/projects/login'
       path: '/partners/stripe/projects/login'
@@ -6210,6 +6244,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/platform/organizations/$slug/billing/subscription'
       preLoaderRoute: typeof ApiPlatformOrganizationsSlugBillingSubscriptionRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/platform/auth/$ref/config/hooks': {
+      id: '/api/platform/auth/$ref/config/hooks'
+      path: '/hooks'
+      fullPath: '/api/platform/auth/$ref/config/hooks'
+      preLoaderRoute: typeof ApiPlatformAuthRefConfigHooksRouteImport
+      parentRoute: typeof ApiPlatformAuthRefConfigRoute
     }
     '/project/$ref/integrations/$id/$pageId/$childId/': {
       id: '/project/$ref/integrations/$id/$pageId/$childId/'
@@ -7080,6 +7121,20 @@ const ProjectChar91_Char93RouteChildren: ProjectChar91_Char93RouteChildren = {
 const ProjectChar91_Char93RouteWithChildren =
   ProjectChar91_Char93Route._addFileChildren(ProjectChar91_Char93RouteChildren)
 
+interface ApiPlatformAuthRefConfigRouteChildren {
+  ApiPlatformAuthRefConfigHooksRoute: typeof ApiPlatformAuthRefConfigHooksRoute
+}
+
+const ApiPlatformAuthRefConfigRouteChildren: ApiPlatformAuthRefConfigRouteChildren =
+  {
+    ApiPlatformAuthRefConfigHooksRoute: ApiPlatformAuthRefConfigHooksRoute,
+  }
+
+const ApiPlatformAuthRefConfigRouteWithChildren =
+  ApiPlatformAuthRefConfigRoute._addFileChildren(
+    ApiPlatformAuthRefConfigRouteChildren,
+  )
+
 interface ApiV1ProjectsRefApiKeysRouteChildren {
   ApiV1ProjectsRefApiKeysIdRoute: typeof ApiV1ProjectsRefApiKeysIdRoute
 }
@@ -7164,6 +7219,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPlatformOrganizationsIndexRoute: ApiPlatformOrganizationsIndexRoute,
   ApiPlatformProfileIndexRoute: ApiPlatformProfileIndexRoute,
   ApiPlatformProjectsIndexRoute: ApiPlatformProjectsIndexRoute,
+  ApiPlatformAuthRefConfigRoute: ApiPlatformAuthRefConfigRouteWithChildren,
   ApiPlatformAuthRefInviteRoute: ApiPlatformAuthRefInviteRoute,
   ApiPlatformAuthRefMagiclinkRoute: ApiPlatformAuthRefMagiclinkRoute,
   ApiPlatformAuthRefOtpRoute: ApiPlatformAuthRefOtpRoute,

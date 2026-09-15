@@ -2,9 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMocks } from 'node-mocks-http'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 import handler from '../../../../../../../pages/api/platform/projects/[ref]/config/realtime'
+import { writeJsonState } from '@/lib/api/self-hosted/auth-config/state'
 import { mswServer } from '@/tests/lib/msw'
 
 vi.mock('@/lib/constants', () => ({
@@ -55,8 +56,10 @@ const ok = (body: unknown) =>
 
 describe('/api/platform/projects/[ref]/config/realtime', () => {
   let dir: string
+  let warnSpy: MockInstance<(...args: unknown[]) => void>
 
   beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     dir = mkdtempSync(join(tmpdir(), 'studio-realtime-handler-'))
     // The handler talks to Realtime through a stubbed `fetch`; MSW would only report the call it
     // never sees as unhandled.
@@ -74,6 +77,7 @@ describe('/api/platform/projects/[ref]/config/realtime', () => {
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
+    warnSpy.mockRestore()
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
   })
@@ -124,6 +128,27 @@ describe('/api/platform/projects/[ref]/config/realtime', () => {
       expect(executeQuery).toHaveBeenCalledTimes(1)
       expect(executeQuery.mock.calls[0][0].query).toContain('from _realtime.tenants')
       expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('answers 200 with the saved values when the reconcile write is refused', async () => {
+      await writeJsonState('realtime-config.json', { max_concurrent_users: 1000 }, dir)
+      fetchMock.mockImplementation((_url: string, init: { method: string }) =>
+        init.method === 'PUT'
+          ? Promise.resolve({
+              ok: false,
+              status: 422,
+              text: () => Promise.resolve('{"errors":{"max_concurrent_users":["is invalid"]}}'),
+            } as unknown as Response)
+          : Promise.resolve(ok({ data: TENANT }))
+      )
+      const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
+
+      await handler(req, res)
+
+      // A write that did not land is a 502 on the PATCH, where somebody is waiting to hear it.
+      // On a read it is a log line, and the page still renders what the operator asked for.
+      expect(res._getStatusCode()).toBe(200)
+      expect(JSON.parse(res._getData())).toMatchObject({ max_concurrent_users: 1000 })
     })
 
     it('answers 502 when neither the row nor Realtime can be reached', async () => {

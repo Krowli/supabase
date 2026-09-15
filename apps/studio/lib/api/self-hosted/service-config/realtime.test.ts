@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 import { writeJsonState } from '../auth-config/state'
 import { AUTH_JWT_SECRET } from '../constants'
@@ -104,6 +104,7 @@ const putBody = (): Record<string, unknown> => {
 
 describe('api/self-hosted/service-config/realtime', () => {
   let dir: string
+  let warnSpy: MockInstance<(...args: unknown[]) => void>
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'studio-realtime-state-'))
@@ -111,6 +112,9 @@ describe('api/self-hosted/service-config/realtime', () => {
     executeQuery.mockReset()
     databaseHolds()
     realtimeHolds()
+    // Silenced as well as observed: several tests below deliberately run the degraded paths, which
+    // warn by design, and a passing suite should not print them.
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal('fetch', fetchMock)
     vi.stubEnv('STUDIO_AUTH_STATE_DIR', dir)
     vi.stubEnv('REALTIME_URL', undefined)
@@ -119,9 +123,13 @@ describe('api/self-hosted/service-config/realtime', () => {
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
+    warnSpy.mockRestore()
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
   })
+
+  /** Everything the module warned about during one call, as one string. */
+  const warnings = (): string => warnSpy.mock.calls.map((call) => String(call[0])).join('\n')
 
   const readStateFile = (): Record<string, unknown> =>
     JSON.parse(readFileSync(join(dir, REALTIME_STATE_FILE_NAME), 'utf8'))
@@ -306,6 +314,36 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(config).toMatchObject({ suspend: true })
     })
 
+    it('still answers, with the saved values, when the reconcile write is refused', async () => {
+      databaseHolds({ max_concurrent_users: 200 })
+      await writeJsonState(REALTIME_STATE_FILE_NAME, { max_concurrent_users: 1000 }, dir)
+      fetchMock.mockImplementation((_url: string, init: { method: string }) =>
+        init.method === 'PUT'
+          ? Promise.resolve({
+              ok: false,
+              status: 422,
+              text: () => Promise.resolve('{"errors":{"max_concurrent_users":["is invalid"]}}'),
+            } as unknown as Response)
+          : Promise.resolve(ok({ data: tenant() }))
+      )
+
+      const config = await getRealtimeConfig()
+
+      // A settings page that cannot write is still a settings page. It shows what was asked for,
+      // says so in the log, and the next read tries the reconcile again.
+      expect(config).toMatchObject({ max_concurrent_users: 1000 })
+      expect(warnings()).toContain('could not re-apply the saved Realtime settings')
+      expect(warnings()).toContain('422')
+    })
+
+    it('still answers when Realtime cannot be reached for the reconcile write', async () => {
+      databaseHolds({ max_concurrent_users: 200 })
+      await writeJsonState(REALTIME_STATE_FILE_NAME, { max_concurrent_users: 1000 }, dir)
+      fetchMock.mockRejectedValue(new TypeError('fetch failed'))
+
+      await expect(getRealtimeConfig()).resolves.toMatchObject({ max_concurrent_users: 1000 })
+    })
+
     it('keeps the live value for a setting that was never saved, even while reconciling', async () => {
       databaseHolds({ max_concurrent_users: 200, max_joins_per_second: 333 })
       await writeJsonState(REALTIME_STATE_FILE_NAME, { max_concurrent_users: 1000 }, dir)
@@ -408,6 +446,14 @@ describe('api/self-hosted/service-config/realtime', () => {
       const [url] = fetchMock.mock.calls[0]
       expect(url).toBe('http://realtime-dev:4000/api/tenants/realtime-dev')
       expect(config).toMatchObject({ max_concurrent_users: 200, private_only: false })
+    })
+
+    it('says in the log that four columns have stopped being readable', async () => {
+      await getRealtimeConfig()
+
+      expect(warnings()).toContain('could not read _realtime.tenants for realtime-dev')
+      expect(warnings()).toContain('max_payload_size_in_kb')
+      expect(warnings()).toContain('suspend')
     })
 
     it('falls back when the row is simply not there', async () => {

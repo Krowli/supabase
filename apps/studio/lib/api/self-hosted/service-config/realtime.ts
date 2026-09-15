@@ -185,10 +185,25 @@ async function getTenant(): Promise<Tenant> {
 }
 
 /**
- * A tenant name worth sending. The id travels as a bound parameter, so this is not about escaping —
- * it is a sanity bound, catching a `REALTIME_TENANT_ID` that was set to nothing at all or to
- * something far too long to be a name, before either becomes a puzzling empty read. 255 is generous
- * for a value Realtime keeps in one column; every real tenant name is a fraction of it.
+ * One line to the server log. Studio has no logger module of its own; server-side `lib` code writes
+ * to the console (`lib/upload.ts`, `lib/server/configcat.ts`, `lib/integration-utils.ts`). These
+ * warnings are the only way an operator learns that this settings page is answering in a degraded
+ * mode. A tenant id and a service's own error text are infrastructure, not anyone's data.
+ */
+const warn = (message: string): void => console.warn(`[realtime-config] ${message}`)
+
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
+/**
+ * A tenant id worth sending. The id travels as a bound parameter, so this is not about escaping — it
+ * is a sanity bound, so that something no tenant name could be is refused before it turns into a
+ * puzzling empty read.
+ *
+ * In practice only the length half can fire: `realtimeTenantId()` already falls back to
+ * `realtime-dev` on an empty environment value, so the emptiness check guards this function's own
+ * contract rather than anything an operator can set. 255 is generous for a value Realtime keeps in
+ * one column; every real tenant name is a fraction of it.
  */
 const MAX_TENANT_ID_LENGTH = 255
 
@@ -249,9 +264,26 @@ async function readTenantFromDatabase(): Promise<Tenant | undefined> {
   return tenant
 }
 
-/** The tenant as it actually stands: from its own row where that can be read, else from the API. */
-const getLiveTenant = async (): Promise<Tenant> =>
-  (await readTenantFromDatabase()) ?? (await getTenant())
+/**
+ * The tenant as it actually stands: from its own row where that can be read, else from the API.
+ *
+ * The fallback is warned about every time, because it is not a neutral substitution — the API
+ * reports five of the nine columns, so four of them stop being verifiable and get re-applied on
+ * every read. Nothing in the UI shows that, and an operator wondering why their Realtime settings
+ * are written back constantly has nowhere else to look.
+ */
+const getLiveTenant = async (): Promise<Tenant> => {
+  const row = await readTenantFromDatabase()
+  if (row) return row
+
+  warn(
+    `could not read _realtime.tenants for ${realtimeTenantId()}, falling back to Realtime's admin ` +
+      'API, which does not report max_bytes_per_second, max_presence_events_per_second, ' +
+      'max_payload_size_in_kb or suspend'
+  )
+
+  return await getTenant()
+}
 
 /**
  * Writes the named columns, and only those.
@@ -308,8 +340,18 @@ export async function getRealtimeConfig(): Promise<RealtimeConfig> {
   const live = await getLiveTenant()
   const applied = appliedFromState(state)
 
+  // A read does not fail over a write. If the reconcile cannot land, the page still answers — with
+  // the values the operator asked for, which is what the form should show them — and the next read
+  // tries again. Only a `PATCH` reports a write that did not happen, because there somebody is
+  // waiting to hear whether their save took.
   const reconciled = hasDrifted(applied, live)
-  if (reconciled) await putTenant(applied)
+  if (reconciled) {
+    try {
+      await putTenant(applied)
+    } catch (error) {
+      warn(`could not re-apply the saved Realtime settings: ${describeError(error)}`)
+    }
+  }
 
   // After a reconcile the saved value is the one Realtime is running, so it wins; otherwise the
   // tenant is the record and the saved value is only a fallback for what the view will not report.

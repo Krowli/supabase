@@ -2,7 +2,6 @@ import { useParams } from 'common'
 import { useRouter } from 'next/router'
 import { useEffect } from 'react'
 
-import { IS_PLATFORM } from '@/lib/constants'
 import type { NextPageWithLayout } from '@/types'
 
 const ApiSettings: NextPageWithLayout = () => {
@@ -11,11 +10,7 @@ const ApiSettings: NextPageWithLayout = () => {
 
   useEffect(() => {
     if (!ref) return
-    if (IS_PLATFORM) {
-      router.replace(`/project/${ref}/integrations/data_api/overview`)
-    } else {
-      router.replace(`/project/${ref}/settings/general`)
-    }
+    router.replace(`/project/${ref}/integrations/data_api/overview`)
   }, [ref, router])
 
   return null

@@ -138,8 +138,9 @@ export const PostgrestConfig = () => {
   const { can: canUpdatePostgrestConfigPermission, isSuccess: isPermissionsLoaded } =
     useAsyncCheckPermissions(PermissionAction.UPDATE, 'custom_config_postgrest')
   // PostgREST config (exposed schemas, extra search path, max rows, pool size) is persisted via
-  // the platform API, which isn't available self-hosted (the values come from env vars there).
-  const canUpdatePostgrestConfig = IS_PLATFORM && canUpdatePostgrestConfigPermission
+  // the platform API, and self-hosted as settings on the authenticator role, which override the
+  // env the container was started with.
+  const canUpdatePostgrestConfig = canUpdatePostgrestConfigPermission
   // Entity exposure (tables, functions, default privileges) is applied with SQL GRANT/REVOKE
   // directly against the database, so it works both on the platform and self-hosted.
   const canUpdateExposedEntities = canUpdatePostgrestConfigPermission
@@ -197,8 +198,8 @@ export const PostgrestConfig = () => {
         })
       }
 
-      // The PostgREST config endpoint isn't available self-hosted, so only persist these fields on
-      // the platform. Entity exposure above is applied via SQL and works in both environments.
+      // Skipped for someone who may change entity exposure above but not the PostgREST config
+      // itself, so that the part of the form they are allowed to save still saves.
       if (canUpdatePostgrestConfig) {
         await updatePostgrestConfig(
           {

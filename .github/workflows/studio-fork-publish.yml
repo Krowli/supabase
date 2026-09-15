@@ -15,6 +15,13 @@ permissions:
   contents: read
   packages: write
 
+# Two pushes in quick succession would otherwise race to tag `latest`, and the
+# slower build wins it — leaving `latest` pointing at the older commit. One run
+# per ref at a time; a superseded run is cancelled before it can push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest

@@ -148,6 +148,11 @@ supabase-studio:
     - ENABLED_FEATURES_AUTHENTICATION_THIRD_PARTY_AUTH=false
 ```
 
+The block is written list-style (`- KEY=value`), which is the form the Coolify Supabase template
+uses. If the compose you are editing writes `environment:` as a mapping instead, convert these
+lines to `KEY: value` form — never mix the two styles under one service, because YAML will not
+parse a block that is half list and half mapping.
+
 Notes on three of these:
 
 - `gotrue-config` is mounted read-only into `supabase-auth` and read-write into
@@ -233,9 +238,11 @@ Studio's state and replaced by a rename, so the hand-added line is gone and the 
   renders it, but it is in the JSON.
 - **The email-template content URL is unauthenticated by design.** GoTrue fetches it from inside
   the compose network with no credentials, so the handler runs without authentication. It serves
-  only HTML that a dashboard admin authored, and a template that was never customised answers
-  404, which is GoTrue's signal to use its built-in one. Do not expose that path through Kong or
-  any public proxy.
+  only HTML that a dashboard admin authored. A template that was never customised is not served
+  at all: the env file carries `GOTRUE_MAILER_TEMPLATES_<ID>=""` and GoTrue uses its built-in
+  template without making a request. The endpoint's 404 is the fallback for the window in which
+  GoTrue still holds the old URL — between a reset and the reload, or until a cached template
+  ages out. Do not expose that path through Kong or any public proxy.
 - **Only the Next build ships.** All five fork routes have TanStack mirrors and are registered in
   `routeTree.gen.ts`, but the publish workflow builds the Next target only. Nothing in CI builds
   or exercises the TanStack variant of these routes.
@@ -245,12 +252,17 @@ Studio's state and replaced by a rename, so the hand-added line is gone and the 
 
 ## Updating from upstream
 
-This clone has `supabase/supabase` as `origin`; its default branch is `master`. There is no
-separate `upstream` remote and no push remote for the fork yet — add one before the first
-publish.
+Two remotes matter here, by role rather than by name. One points at `supabase/supabase`, whose
+default branch is `master`; the other is your fork, `krowli/supabase`, which the publish workflow
+runs from. In the original working clone the upstream repo was `origin` and there was no fork
+remote at all. The convention once you have a fork is the other way round — `origin` is your
+fork and the upstream repo is `upstream` — and that is what the commands below assume.
 
 ```bash
-git fetch origin master
+# One time, if the upstream remote does not exist yet.
+git remote add upstream https://github.com/supabase/supabase.git
+
+git fetch upstream master
 
 # Rebase onto the upstream commit the weekly supabase/studio image was built from,
 # not onto the tip of master.
@@ -259,7 +271,7 @@ git rebase <that-commit> fork/auth-selfhosted
 npx -y pnpm@11.13.1 --filter studio test
 npx -y pnpm@11.13.1 --filter studio typecheck
 
-git push --force-with-lease <fork-remote> fork/auth-selfhosted
+git push --force-with-lease origin fork/auth-selfhosted
 ```
 
 Pushing the branch runs `.github/workflows/studio-fork-publish.yml`, which publishes

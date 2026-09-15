@@ -271,7 +271,6 @@ import { Route as ApiPlatformPgMetaRefColumnPrivilegesRouteImport } from './rout
 import { Route as ApiPlatformIntegrationsGithubRepositoriesRouteImport } from './routes/api/platform/integrations/github/repositories'
 import { Route as ApiPlatformIntegrationsGithubConnectionsRouteImport } from './routes/api/platform/integrations/github/connections'
 import { Route as ApiPlatformIntegrationsGithubAuthorizationRouteImport } from './routes/api/platform/integrations/github/authorization'
-import { Route as ApiPlatformDatabaseRefPoolingRouteImport } from './routes/api/platform/database/$ref/pooling'
 import { Route as ApiPlatformAuthRefRecoverRouteImport } from './routes/api/platform/auth/$ref/recover'
 import { Route as ApiPlatformAuthRefOtpRouteImport } from './routes/api/platform/auth/$ref/otp'
 import { Route as ApiPlatformAuthRefMagiclinkRouteImport } from './routes/api/platform/auth/$ref/magiclink'
@@ -298,7 +297,9 @@ import { Route as ApiV1ProjectsRefDatabaseMigrationsRouteImport } from './routes
 import { Route as ApiV1ProjectsRefApiKeysIdRouteImport } from './routes/api/v1/projects/$ref/api-keys/$id'
 import { Route as ApiPlatformPropsProjectRefApiRouteImport } from './routes/api/platform/props/project/$ref/api'
 import { Route as ApiPlatformProjectsRefContentCountRouteImport } from './routes/api/platform/projects/$ref/content/count'
+import { Route as ApiPlatformProjectsRefConfigSupavisorRouteImport } from './routes/api/platform/projects/$ref/config/supavisor'
 import { Route as ApiPlatformProjectsRefConfigPostgrestRouteImport } from './routes/api/platform/projects/$ref/config/postgrest'
+import { Route as ApiPlatformProjectsRefConfigPgbouncerRouteImport } from './routes/api/platform/projects/$ref/config/pgbouncer'
 import { Route as ApiPlatformProjectsRefBillingAddonsRouteImport } from './routes/api/platform/projects/$ref/billing/addons'
 import { Route as ApiPlatformProjectsRefApiRestRouteImport } from './routes/api/platform/projects/$ref/api/rest'
 import { Route as ApiPlatformProjectsRefApiGraphqlRouteImport } from './routes/api/platform/projects/$ref/api/graphql'
@@ -1777,12 +1778,6 @@ const ApiPlatformIntegrationsGithubAuthorizationRoute =
     path: '/api/platform/integrations/github/authorization',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPlatformDatabaseRefPoolingRoute =
-  ApiPlatformDatabaseRefPoolingRouteImport.update({
-    id: '/api/platform/database/$ref/pooling',
-    path: '/api/platform/database/$ref/pooling',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPlatformAuthRefRecoverRoute =
   ApiPlatformAuthRefRecoverRouteImport.update({
     id: '/api/platform/auth/$ref/recover',
@@ -1938,10 +1933,22 @@ const ApiPlatformProjectsRefContentCountRoute =
     path: '/api/platform/projects/$ref/content/count',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPlatformProjectsRefConfigSupavisorRoute =
+  ApiPlatformProjectsRefConfigSupavisorRouteImport.update({
+    id: '/api/platform/projects/$ref/config/supavisor',
+    path: '/api/platform/projects/$ref/config/supavisor',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPlatformProjectsRefConfigPostgrestRoute =
   ApiPlatformProjectsRefConfigPostgrestRouteImport.update({
     id: '/api/platform/projects/$ref/config/postgrest',
     path: '/api/platform/projects/$ref/config/postgrest',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPlatformProjectsRefConfigPgbouncerRoute =
+  ApiPlatformProjectsRefConfigPgbouncerRouteImport.update({
+    id: '/api/platform/projects/$ref/config/pgbouncer',
+    path: '/api/platform/projects/$ref/config/pgbouncer',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPlatformProjectsRefBillingAddonsRoute =
@@ -2357,7 +2364,6 @@ export interface FileRoutesByFullPath {
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
   '/api/platform/auth/$ref/recover': typeof ApiPlatformAuthRefRecoverRoute
-  '/api/platform/database/$ref/pooling': typeof ApiPlatformDatabaseRefPoolingRoute
   '/api/platform/integrations/github/authorization': typeof ApiPlatformIntegrationsGithubAuthorizationRoute
   '/api/platform/integrations/github/connections': typeof ApiPlatformIntegrationsGithubConnectionsRoute
   '/api/platform/integrations/github/repositories': typeof ApiPlatformIntegrationsGithubRepositoriesRoute
@@ -2432,7 +2438,9 @@ export interface FileRoutesByFullPath {
   '/api/platform/projects/$ref/api/graphql': typeof ApiPlatformProjectsRefApiGraphqlRoute
   '/api/platform/projects/$ref/api/rest': typeof ApiPlatformProjectsRefApiRestRoute
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
+  '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
   '/api/v1/projects/$ref/api-keys/$id': typeof ApiV1ProjectsRefApiKeysIdRoute
@@ -2668,7 +2676,6 @@ export interface FileRoutesByTo {
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
   '/api/platform/auth/$ref/recover': typeof ApiPlatformAuthRefRecoverRoute
-  '/api/platform/database/$ref/pooling': typeof ApiPlatformDatabaseRefPoolingRoute
   '/api/platform/integrations/github/authorization': typeof ApiPlatformIntegrationsGithubAuthorizationRoute
   '/api/platform/integrations/github/connections': typeof ApiPlatformIntegrationsGithubConnectionsRoute
   '/api/platform/integrations/github/repositories': typeof ApiPlatformIntegrationsGithubRepositoriesRoute
@@ -2743,7 +2750,9 @@ export interface FileRoutesByTo {
   '/api/platform/projects/$ref/api/graphql': typeof ApiPlatformProjectsRefApiGraphqlRoute
   '/api/platform/projects/$ref/api/rest': typeof ApiPlatformProjectsRefApiRestRoute
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
+  '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
   '/api/v1/projects/$ref/api-keys/$id': typeof ApiV1ProjectsRefApiKeysIdRoute
@@ -2996,7 +3005,6 @@ export interface FileRoutesById {
   '/api/platform/auth/$ref/magiclink': typeof ApiPlatformAuthRefMagiclinkRoute
   '/api/platform/auth/$ref/otp': typeof ApiPlatformAuthRefOtpRoute
   '/api/platform/auth/$ref/recover': typeof ApiPlatformAuthRefRecoverRoute
-  '/api/platform/database/$ref/pooling': typeof ApiPlatformDatabaseRefPoolingRoute
   '/api/platform/integrations/github/authorization': typeof ApiPlatformIntegrationsGithubAuthorizationRoute
   '/api/platform/integrations/github/connections': typeof ApiPlatformIntegrationsGithubConnectionsRoute
   '/api/platform/integrations/github/repositories': typeof ApiPlatformIntegrationsGithubRepositoriesRoute
@@ -3071,7 +3079,9 @@ export interface FileRoutesById {
   '/api/platform/projects/$ref/api/graphql': typeof ApiPlatformProjectsRefApiGraphqlRoute
   '/api/platform/projects/$ref/api/rest': typeof ApiPlatformProjectsRefApiRestRoute
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
+  '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
   '/api/v1/projects/$ref/api-keys/$id': typeof ApiV1ProjectsRefApiKeysIdRoute
@@ -3323,7 +3333,6 @@ export interface FileRouteTypes {
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
     | '/api/platform/auth/$ref/recover'
-    | '/api/platform/database/$ref/pooling'
     | '/api/platform/integrations/github/authorization'
     | '/api/platform/integrations/github/connections'
     | '/api/platform/integrations/github/repositories'
@@ -3398,7 +3407,9 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/api/graphql'
     | '/api/platform/projects/$ref/api/rest'
     | '/api/platform/projects/$ref/billing/addons'
+    | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
     | '/api/v1/projects/$ref/api-keys/$id'
@@ -3634,7 +3645,6 @@ export interface FileRouteTypes {
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
     | '/api/platform/auth/$ref/recover'
-    | '/api/platform/database/$ref/pooling'
     | '/api/platform/integrations/github/authorization'
     | '/api/platform/integrations/github/connections'
     | '/api/platform/integrations/github/repositories'
@@ -3709,7 +3719,9 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/api/graphql'
     | '/api/platform/projects/$ref/api/rest'
     | '/api/platform/projects/$ref/billing/addons'
+    | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
     | '/api/v1/projects/$ref/api-keys/$id'
@@ -3961,7 +3973,6 @@ export interface FileRouteTypes {
     | '/api/platform/auth/$ref/magiclink'
     | '/api/platform/auth/$ref/otp'
     | '/api/platform/auth/$ref/recover'
-    | '/api/platform/database/$ref/pooling'
     | '/api/platform/integrations/github/authorization'
     | '/api/platform/integrations/github/connections'
     | '/api/platform/integrations/github/repositories'
@@ -4036,7 +4047,9 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/api/graphql'
     | '/api/platform/projects/$ref/api/rest'
     | '/api/platform/projects/$ref/billing/addons'
+    | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
     | '/api/v1/projects/$ref/api-keys/$id'
@@ -4145,7 +4158,6 @@ export interface RootRouteChildren {
   ApiPlatformAuthRefMagiclinkRoute: typeof ApiPlatformAuthRefMagiclinkRoute
   ApiPlatformAuthRefOtpRoute: typeof ApiPlatformAuthRefOtpRoute
   ApiPlatformAuthRefRecoverRoute: typeof ApiPlatformAuthRefRecoverRoute
-  ApiPlatformDatabaseRefPoolingRoute: typeof ApiPlatformDatabaseRefPoolingRoute
   ApiPlatformIntegrationsGithubAuthorizationRoute: typeof ApiPlatformIntegrationsGithubAuthorizationRoute
   ApiPlatformIntegrationsGithubConnectionsRoute: typeof ApiPlatformIntegrationsGithubConnectionsRoute
   ApiPlatformIntegrationsGithubRepositoriesRoute: typeof ApiPlatformIntegrationsGithubRepositoriesRoute
@@ -4173,7 +4185,9 @@ export interface RootRouteChildren {
   ApiPlatformProjectsRefApiGraphqlRoute: typeof ApiPlatformProjectsRefApiGraphqlRoute
   ApiPlatformProjectsRefApiRestRoute: typeof ApiPlatformProjectsRefApiRestRoute
   ApiPlatformProjectsRefBillingAddonsRoute: typeof ApiPlatformProjectsRefBillingAddonsRoute
+  ApiPlatformProjectsRefConfigPgbouncerRoute: typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   ApiPlatformProjectsRefConfigPostgrestRoute: typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  ApiPlatformProjectsRefConfigSupavisorRoute: typeof ApiPlatformProjectsRefConfigSupavisorRoute
   ApiPlatformProjectsRefContentCountRoute: typeof ApiPlatformProjectsRefContentCountRoute
   ApiPlatformPropsProjectRefApiRoute: typeof ApiPlatformPropsProjectRefApiRoute
   ApiV1ProjectsRefDatabaseMigrationsRoute: typeof ApiV1ProjectsRefDatabaseMigrationsRoute
@@ -6049,13 +6063,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPlatformIntegrationsGithubAuthorizationRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/platform/database/$ref/pooling': {
-      id: '/api/platform/database/$ref/pooling'
-      path: '/api/platform/database/$ref/pooling'
-      fullPath: '/api/platform/database/$ref/pooling'
-      preLoaderRoute: typeof ApiPlatformDatabaseRefPoolingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/platform/auth/$ref/recover': {
       id: '/api/platform/auth/$ref/recover'
       path: '/api/platform/auth/$ref/recover'
@@ -6238,11 +6245,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPlatformProjectsRefContentCountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/platform/projects/$ref/config/supavisor': {
+      id: '/api/platform/projects/$ref/config/supavisor'
+      path: '/api/platform/projects/$ref/config/supavisor'
+      fullPath: '/api/platform/projects/$ref/config/supavisor'
+      preLoaderRoute: typeof ApiPlatformProjectsRefConfigSupavisorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/platform/projects/$ref/config/postgrest': {
       id: '/api/platform/projects/$ref/config/postgrest'
       path: '/api/platform/projects/$ref/config/postgrest'
       fullPath: '/api/platform/projects/$ref/config/postgrest'
       preLoaderRoute: typeof ApiPlatformProjectsRefConfigPostgrestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/platform/projects/$ref/config/pgbouncer': {
+      id: '/api/platform/projects/$ref/config/pgbouncer'
+      path: '/api/platform/projects/$ref/config/pgbouncer'
+      fullPath: '/api/platform/projects/$ref/config/pgbouncer'
+      preLoaderRoute: typeof ApiPlatformProjectsRefConfigPgbouncerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/platform/projects/$ref/billing/addons': {
@@ -7287,7 +7308,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPlatformAuthRefMagiclinkRoute: ApiPlatformAuthRefMagiclinkRoute,
   ApiPlatformAuthRefOtpRoute: ApiPlatformAuthRefOtpRoute,
   ApiPlatformAuthRefRecoverRoute: ApiPlatformAuthRefRecoverRoute,
-  ApiPlatformDatabaseRefPoolingRoute: ApiPlatformDatabaseRefPoolingRoute,
   ApiPlatformIntegrationsGithubAuthorizationRoute:
     ApiPlatformIntegrationsGithubAuthorizationRoute,
   ApiPlatformIntegrationsGithubConnectionsRoute:
@@ -7326,8 +7346,12 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPlatformProjectsRefApiRestRoute: ApiPlatformProjectsRefApiRestRoute,
   ApiPlatformProjectsRefBillingAddonsRoute:
     ApiPlatformProjectsRefBillingAddonsRoute,
+  ApiPlatformProjectsRefConfigPgbouncerRoute:
+    ApiPlatformProjectsRefConfigPgbouncerRoute,
   ApiPlatformProjectsRefConfigPostgrestRoute:
     ApiPlatformProjectsRefConfigPostgrestRoute,
+  ApiPlatformProjectsRefConfigSupavisorRoute:
+    ApiPlatformProjectsRefConfigSupavisorRoute,
   ApiPlatformProjectsRefContentCountRoute:
     ApiPlatformProjectsRefContentCountRoute,
   ApiPlatformPropsProjectRefApiRoute: ApiPlatformPropsProjectRefApiRoute,

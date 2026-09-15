@@ -313,10 +313,17 @@ export function toEnv(
       continue
     }
 
+    // One platform number, two GoTrue fields, and both of them sticky. A non-zero
+    // `GOTRUE_DB_CONN_PERCENTAGE` decides the pool size on its own and leaves
+    // `GOTRUE_DB_MAX_POOL_SIZE` unread (`internal/storage/dial.go:234`), so writing only the field
+    // the unit selected makes a switch from percent back to connections do nothing at all: the old
+    // percentage is still in force. Both are written every time, `0` — which is "unset" for either
+    // — into the one the unit did not pick.
     if (key === 'DB_MAX_POOL_SIZE') {
       if (typeof value !== 'number') continue
       const percent = source.DB_MAX_POOL_SIZE_UNIT === 'percent'
-      env[percent ? 'GOTRUE_DB_CONN_PERCENTAGE' : 'GOTRUE_DB_MAX_POOL_SIZE'] = String(value)
+      env.GOTRUE_DB_MAX_POOL_SIZE = percent ? '0' : String(value)
+      env.GOTRUE_DB_CONN_PERCENTAGE = percent ? String(value) : '0'
       continue
     }
 
@@ -332,8 +339,14 @@ export function toEnv(
       continue
     }
 
+    // With no external URL to build on, the callback would be written as the bare path
+    // `/auth/v1/callback` — not an address any OAuth provider can redirect to, and non-empty
+    // enough to pass GoTrue's own check (`internal/conf/configuration.go:1379`) and overwrite a
+    // correct `GOTRUE_EXTERNAL_<P>_REDIRECT_URI` the operator set in the compose file. The key is
+    // left out instead, so that value survives; with none set, GoTrue refuses the sign-in with
+    // "missing redirect URI", which is at least a failure someone can see.
     const provider = value === true ? oauthProviderOf(key) : undefined
-    if (provider !== undefined) {
+    if (provider !== undefined && ctx.apiExternalUrl !== '') {
       env[`GOTRUE_EXTERNAL_${provider}_REDIRECT_URI`] = `${ctx.apiExternalUrl}/auth/v1/callback`
     }
 

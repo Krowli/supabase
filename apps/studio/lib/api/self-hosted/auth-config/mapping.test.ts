@@ -252,6 +252,15 @@ describe('api/self-hosted/auth-config/mapping', () => {
       })
     })
 
+    it('adds no callback URL at all when there is no external URL to build one from', () => {
+      // `SUPABASE_PUBLIC_URL` unset would otherwise write the bare path `/auth/v1/callback`, which
+      // no OAuth provider can redirect to and which would overwrite a correct redirect URI set in
+      // the compose file. Leaving the key out lets that one stand.
+      expect(env({ EXTERNAL_GITHUB_ENABLED: true }, { ...CTX, apiExternalUrl: '' })).toEqual({
+        GOTRUE_EXTERNAL_GITHUB_ENABLED: 'true',
+      })
+    })
+
     it('adds no callback URL for the sign-in methods that are not OAuth', () => {
       expect(
         env({
@@ -286,20 +295,37 @@ describe('api/self-hosted/auth-config/mapping', () => {
   })
 
   describe('connection pool', () => {
-    it('writes a connection count to the pool size', () => {
+    it('writes a connection count to the pool size, and zeroes the percentage', () => {
       expect(env({ DB_MAX_POOL_SIZE: 20, DB_MAX_POOL_SIZE_UNIT: 'connections' })).toEqual({
         GOTRUE_DB_MAX_POOL_SIZE: '20',
+        GOTRUE_DB_CONN_PERCENTAGE: '0',
       })
     })
 
     it('treats a missing unit as connections', () => {
-      expect(env({ DB_MAX_POOL_SIZE: 20 })).toEqual({ GOTRUE_DB_MAX_POOL_SIZE: '20' })
+      expect(env({ DB_MAX_POOL_SIZE: 20 })).toEqual({
+        GOTRUE_DB_MAX_POOL_SIZE: '20',
+        GOTRUE_DB_CONN_PERCENTAGE: '0',
+      })
     })
 
-    it('writes a percentage to the other field, and not to the pool size', () => {
+    it('writes a percentage to the other field, and zeroes the pool size', () => {
       expect(env({ DB_MAX_POOL_SIZE: 30, DB_MAX_POOL_SIZE_UNIT: 'percent' })).toEqual({
         GOTRUE_DB_CONN_PERCENTAGE: '30',
+        GOTRUE_DB_MAX_POOL_SIZE: '0',
       })
+    })
+
+    it('lets a switch back to connections actually take effect', () => {
+      // Both GoTrue fields are sticky, and a non-zero percentage decides the pool size on its own
+      // (`internal/storage/dial.go:234`). Writing only the field the unit selected would leave the
+      // previous percentage in force: the dashboard would change and nothing else would.
+      const percent = env({ DB_MAX_POOL_SIZE: 30, DB_MAX_POOL_SIZE_UNIT: 'percent' })
+      const connections = env({ DB_MAX_POOL_SIZE: 20, DB_MAX_POOL_SIZE_UNIT: 'connections' })
+
+      expect(percent.GOTRUE_DB_CONN_PERCENTAGE).toBe('30')
+      expect(connections.GOTRUE_DB_CONN_PERCENTAGE).toBe('0')
+      expect(Object.keys(percent).sort()).toEqual(Object.keys(connections).sort())
     })
   })
 
@@ -428,6 +454,7 @@ describe('api/self-hosted/auth-config/mapping', () => {
       GOTRUE_MAILER_TEMPLATES_CONFIRMATION:
         'https://studio.example.com/templates/confirmation/content',
       GOTRUE_DB_MAX_POOL_SIZE: '10',
+      GOTRUE_DB_CONN_PERCENTAGE: '0',
     })
   })
 

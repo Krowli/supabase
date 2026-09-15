@@ -198,20 +198,16 @@ export const PostgrestConfig = () => {
         })
       }
 
-      // Skipped for someone who may change entity exposure above but not the PostgREST config
-      // itself, so that the part of the form they are allowed to save still saves.
-      if (canUpdatePostgrestConfig) {
-        await updatePostgrestConfig(
-          {
-            projectRef,
-            dbSchema,
-            maxRows: values.maxRows,
-            dbExtraSearchPath: values.dbExtraSearchPath.join(','),
-            dbPool: values.dbPool ? values.dbPool : null,
-          },
-          { onError: noop }
-        )
-      }
+      await updatePostgrestConfig(
+        {
+          projectRef,
+          dbSchema,
+          maxRows: values.maxRows,
+          dbExtraSearchPath: values.dbExtraSearchPath.join(','),
+          dbPool: values.dbPool ? values.dbPool : null,
+        },
+        { onError: noop }
+      )
 
       await Promise.all([
         queryClient.invalidateQueries({
@@ -561,7 +557,11 @@ export const PostgrestConfig = () => {
                                   disabled={!canUpdatePostgrestConfig || !IS_PLATFORM}
                                   {...field}
                                   type="number"
-                                  placeholder="Configured automatically"
+                                  placeholder={
+                                    IS_PLATFORM
+                                      ? 'Configured automatically'
+                                      : 'Set by PGRST_DB_POOL'
+                                  }
                                   onChange={(e) =>
                                     field.onChange(
                                       e.target.value === '' ? null : Number(e.target.value)

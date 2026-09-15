@@ -9,6 +9,10 @@ import { validatePatch } from './validate'
 
 type GoTrueConfigResponse = components['schemas']['GoTrueConfigResponse']
 
+// Re-exported because a route carrying a template id in its path has to check the string it was
+// given against the 13 real ones, and a type cannot do that at runtime.
+export { TEMPLATE_IDS } from './defaults'
+
 /** One of the 13 email templates the Auth UI edits. */
 export type TemplateId = (typeof TEMPLATE_IDS)[number]
 

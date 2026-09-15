@@ -298,6 +298,7 @@ import { Route as ApiV1ProjectsRefApiKeysIdRouteImport } from './routes/api/v1/p
 import { Route as ApiPlatformPropsProjectRefApiRouteImport } from './routes/api/platform/props/project/$ref/api'
 import { Route as ApiPlatformProjectsRefContentCountRouteImport } from './routes/api/platform/projects/$ref/content/count'
 import { Route as ApiPlatformProjectsRefConfigSupavisorRouteImport } from './routes/api/platform/projects/$ref/config/supavisor'
+import { Route as ApiPlatformProjectsRefConfigRealtimeRouteImport } from './routes/api/platform/projects/$ref/config/realtime'
 import { Route as ApiPlatformProjectsRefConfigPostgrestRouteImport } from './routes/api/platform/projects/$ref/config/postgrest'
 import { Route as ApiPlatformProjectsRefConfigPgbouncerRouteImport } from './routes/api/platform/projects/$ref/config/pgbouncer'
 import { Route as ApiPlatformProjectsRefBillingAddonsRouteImport } from './routes/api/platform/projects/$ref/billing/addons'
@@ -1939,6 +1940,12 @@ const ApiPlatformProjectsRefConfigSupavisorRoute =
     path: '/api/platform/projects/$ref/config/supavisor',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPlatformProjectsRefConfigRealtimeRoute =
+  ApiPlatformProjectsRefConfigRealtimeRouteImport.update({
+    id: '/api/platform/projects/$ref/config/realtime',
+    path: '/api/platform/projects/$ref/config/realtime',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPlatformProjectsRefConfigPostgrestRoute =
   ApiPlatformProjectsRefConfigPostgrestRouteImport.update({
     id: '/api/platform/projects/$ref/config/postgrest',
@@ -2440,6 +2447,7 @@ export interface FileRoutesByFullPath {
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
   '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/realtime': typeof ApiPlatformProjectsRefConfigRealtimeRoute
   '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
@@ -2752,6 +2760,7 @@ export interface FileRoutesByTo {
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
   '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/realtime': typeof ApiPlatformProjectsRefConfigRealtimeRoute
   '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
@@ -3081,6 +3090,7 @@ export interface FileRoutesById {
   '/api/platform/projects/$ref/billing/addons': typeof ApiPlatformProjectsRefBillingAddonsRoute
   '/api/platform/projects/$ref/config/pgbouncer': typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   '/api/platform/projects/$ref/config/postgrest': typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  '/api/platform/projects/$ref/config/realtime': typeof ApiPlatformProjectsRefConfigRealtimeRoute
   '/api/platform/projects/$ref/config/supavisor': typeof ApiPlatformProjectsRefConfigSupavisorRoute
   '/api/platform/projects/$ref/content/count': typeof ApiPlatformProjectsRefContentCountRoute
   '/api/platform/props/project/$ref/api': typeof ApiPlatformPropsProjectRefApiRoute
@@ -3409,6 +3419,7 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/billing/addons'
     | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/realtime'
     | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
@@ -3721,6 +3732,7 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/billing/addons'
     | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/realtime'
     | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
@@ -4049,6 +4061,7 @@ export interface FileRouteTypes {
     | '/api/platform/projects/$ref/billing/addons'
     | '/api/platform/projects/$ref/config/pgbouncer'
     | '/api/platform/projects/$ref/config/postgrest'
+    | '/api/platform/projects/$ref/config/realtime'
     | '/api/platform/projects/$ref/config/supavisor'
     | '/api/platform/projects/$ref/content/count'
     | '/api/platform/props/project/$ref/api'
@@ -4187,6 +4200,7 @@ export interface RootRouteChildren {
   ApiPlatformProjectsRefBillingAddonsRoute: typeof ApiPlatformProjectsRefBillingAddonsRoute
   ApiPlatformProjectsRefConfigPgbouncerRoute: typeof ApiPlatformProjectsRefConfigPgbouncerRoute
   ApiPlatformProjectsRefConfigPostgrestRoute: typeof ApiPlatformProjectsRefConfigPostgrestRoute
+  ApiPlatformProjectsRefConfigRealtimeRoute: typeof ApiPlatformProjectsRefConfigRealtimeRoute
   ApiPlatformProjectsRefConfigSupavisorRoute: typeof ApiPlatformProjectsRefConfigSupavisorRoute
   ApiPlatformProjectsRefContentCountRoute: typeof ApiPlatformProjectsRefContentCountRoute
   ApiPlatformPropsProjectRefApiRoute: typeof ApiPlatformPropsProjectRefApiRoute
@@ -6252,6 +6266,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPlatformProjectsRefConfigSupavisorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/platform/projects/$ref/config/realtime': {
+      id: '/api/platform/projects/$ref/config/realtime'
+      path: '/api/platform/projects/$ref/config/realtime'
+      fullPath: '/api/platform/projects/$ref/config/realtime'
+      preLoaderRoute: typeof ApiPlatformProjectsRefConfigRealtimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/platform/projects/$ref/config/postgrest': {
       id: '/api/platform/projects/$ref/config/postgrest'
       path: '/api/platform/projects/$ref/config/postgrest'
@@ -7350,6 +7371,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiPlatformProjectsRefConfigPgbouncerRoute,
   ApiPlatformProjectsRefConfigPostgrestRoute:
     ApiPlatformProjectsRefConfigPostgrestRoute,
+  ApiPlatformProjectsRefConfigRealtimeRoute:
+    ApiPlatformProjectsRefConfigRealtimeRoute,
   ApiPlatformProjectsRefConfigSupavisorRoute:
     ApiPlatformProjectsRefConfigSupavisorRoute,
   ApiPlatformProjectsRefContentCountRoute:

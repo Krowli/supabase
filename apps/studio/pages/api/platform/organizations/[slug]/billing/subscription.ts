@@ -25,6 +25,9 @@ const handleGet = async (_req: NextApiRequest, res: NextApiResponse<ResponseData
     current_period_end: 0,
     current_period_start: 0,
     next_invoice_at: 0,
+    // `false` here and `true` on the organization stub (`organizations/index.ts`) on purpose: that
+    // one is the spend-cap flag the settings pages gate a usage-based field on, this one feeds the
+    // billing and usage pages, which read the subscription and never the organization's copy.
     usage_billing_enabled: false,
     plan: {
       id: 'enterprise',

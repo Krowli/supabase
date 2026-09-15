@@ -1,11 +1,12 @@
 import type { ProductMenuGroup } from '@/components/ui/ProductMenu/ProductMenu.types'
 import type { Project } from '@/data/projects/project-detail-query'
-import { IS_PLATFORM } from '@/lib/constants'
 import { SHORTCUT_IDS } from '@/state/shortcuts/registry'
 
 export const generateRealtimeMenu = (project: Project | undefined): ProductMenuGroup[] => {
   const ref = project?.ref ?? 'default'
-  const showRealtimeSettings = IS_PLATFORM
+  // Was `IS_PLATFORM`: self-hosted, the page now reads and writes Realtime's own admin API
+  // (`lib/api/self-hosted/service-config/realtime.ts`), so there is nothing left to hide.
+  const showRealtimeSettings = true
 
   return [
     {

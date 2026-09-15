@@ -3,7 +3,6 @@ import type { components } from 'api-types'
 
 import { realtimeKeys } from './keys'
 import { get, handleError } from '@/data/fetchers'
-import { IS_PLATFORM } from '@/lib/constants'
 import type { ResponseError, UseCustomQueryOptions } from '@/types'
 
 type RealtimeConfigResponse = components['schemas']['RealtimeConfigResponse_Output']
@@ -60,6 +59,6 @@ export const useRealtimeConfigurationQuery = <TData = RealtimeConfigurationData>
   useQuery<RealtimeConfigurationData, RealtimeConfigurationError, TData>({
     queryKey: realtimeKeys.configuration(projectRef),
     queryFn: ({ signal }) => getRealtimeConfiguration({ projectRef }, signal),
-    enabled: enabled && IS_PLATFORM && typeof projectRef !== 'undefined',
+    enabled: enabled && typeof projectRef !== 'undefined',
     ...options,
   })

@@ -1,7 +1,7 @@
 {
   "rules": {
     "react-hooks/exhaustive-deps": 160,
-    "import/no-anonymous-default-export": 63,
+    "import/no-anonymous-default-export": 64,
     "@tanstack/query/exhaustive-deps": 89,
     "@typescript-eslint/no-explicit-any": 875,
     "no-restricted-imports": 0,
@@ -187,6 +187,7 @@
       "pages/api/platform/projects/[ref]/config/index.ts": 1,
       "pages/api/platform/projects/[ref]/config/pgbouncer.ts": 1,
       "pages/api/platform/projects/[ref]/config/postgrest.ts": 1,
+      "pages/api/platform/projects/[ref]/config/realtime.ts": 1,
       "pages/api/platform/projects/[ref]/config/supavisor.ts": 1,
       "pages/api/platform/projects/[ref]/databases.ts": 1,
       "pages/api/platform/projects/[ref]/index.ts": 1,

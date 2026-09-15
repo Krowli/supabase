@@ -28,6 +28,10 @@ const handleGetAll = async (_req: NextApiRequest, res: NextApiResponse) => {
         id: 'enterprise',
         name: 'Enterprise',
       },
+      // There is no spend cap self-hosted — nobody is billed for anything. Several settings pages
+      // read this flag to decide whether a usage-based field may be edited at all (the Realtime
+      // rate limits, for one), and a missing flag reads as "spend cap on" and disables them.
+      usage_billing_enabled: true,
     },
   ]
   return res.status(200).json(response)

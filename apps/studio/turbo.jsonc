@@ -77,6 +77,10 @@
         "SUPAVISOR_URL",
         "POOLER_TENANT_ID",
         "POOLER_PROXY_PORT_TRANSACTION",
+        // Realtime's admin API and the one tenant it serves. Read by the self-hosted Realtime
+        // settings endpoint (see lib/api/self-hosted/service-config).
+        "REALTIME_URL",
+        "REALTIME_TENANT_ID",
         // The GoTrue config directory the self-hosted Auth pages render `99_studio.env` into, and
         // where they keep their own settings file (see lib/api/self-hosted/auth-config).
         "GOTRUE_CONFIG_DIR",

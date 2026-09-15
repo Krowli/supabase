@@ -122,5 +122,19 @@ describe('api/self-hosted/auth-config/state', () => {
 
       expect(statSync(join(dir, STATE_FILE_NAME)).mode & 0o777).toBe(0o600)
     })
+
+    it('leaves one readable state when two writes overlap', async () => {
+      // Each write uses its own temp name, so concurrent saves cannot write into the same temp file
+      // and rename a blend of the two into place.
+      await Promise.all([
+        writeState({ SITE_URL: 'http://first' }, dir),
+        writeState({ SITE_URL: 'http://second' }, dir),
+        writeState({ SITE_URL: 'http://third' }, dir),
+      ])
+
+      expect(readdirSync(dir)).toEqual([STATE_FILE_NAME])
+      const state = await readState(dir)
+      expect(['http://first', 'http://second', 'http://third']).toContain(state.SITE_URL)
+    })
   })
 })

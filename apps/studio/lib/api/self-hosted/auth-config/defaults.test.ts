@@ -24,25 +24,28 @@ function findPlatformTypes(): string {
 const PLATFORM_TYPES = findPlatformTypes()
 
 /**
- * Reads the property names of `GoTrueConfigResponse` straight out of the generated types, so this
- * suite fails when the platform type gains a key that neither list here answers for. The nested
- * `*_CUSTOM_CONTENTS` objects repeat names that also exist at the top level, so a Set is enough to
- * keep the collection flat.
+ * Reads `GoTrueConfigResponse` straight out of the generated types, so this suite fails when the
+ * platform type gains a key that neither list here answers for, or changes whether a key may be
+ * null. Only properties at the block's own indentation are collected: the nested
+ * `*_CUSTOM_CONTENTS` objects repeat names that also exist at the top level with different types.
  */
-function collectGoTrueConfigKeys(): string[] {
+function collectGoTrueConfigProperties(): Map<string, { nullable: boolean }> {
   const lines = readFileSync(PLATFORM_TYPES, 'utf8').split('\n')
 
   const start = lines.findIndex((line) => /^\s+GoTrueConfigResponse: \{$/.test(line))
   if (start === -1) throw new Error(`GoTrueConfigResponse not found in ${PLATFORM_TYPES}`)
 
-  const closing = new RegExp(`^${' '.repeat(lines[start].search(/\S/))}\\}$`)
+  const blockIndent = lines[start].search(/\S/)
+  const closing = new RegExp(`^${' '.repeat(blockIndent)}\\}$`)
 
-  const keys = new Set<string>()
+  const properties = new Map<string, { nullable: boolean }>()
   for (let index = start + 1; index < lines.length; index++) {
-    if (closing.test(lines[index])) return [...keys]
+    if (closing.test(lines[index])) return properties
 
-    const match = lines[index].match(/^\s+([A-Z][A-Z0-9_]*)\??:/)
-    if (match) keys.add(match[1])
+    const match = lines[index].match(/^(\s+)([A-Z][A-Z0-9_]*)\??: (.+)$/)
+    if (match && match[1].length === blockIndent + 2) {
+      properties.set(match[2], { nullable: /(^|\|\s*)null\s*$/.test(match[3].trim()) })
+    }
   }
 
   throw new Error(`GoTrueConfigResponse is never closed in ${PLATFORM_TYPES}`)
@@ -50,12 +53,22 @@ function collectGoTrueConfigKeys(): string[] {
 
 describe('api/self-hosted/auth-config/defaults', () => {
   describe('completeness against GoTrueConfigResponse', () => {
-    const keys = collectGoTrueConfigKeys()
+    const properties = collectGoTrueConfigProperties()
+    const keys = [...properties.keys()]
     const defaultKeys = new Set(Object.keys(DEFAULTS))
     const nullKeys = new Set<string>(NULL_BY_DEFAULT)
 
     it('finds the platform type to check against', () => {
       expect(keys.length).toBeGreaterThan(200)
+    })
+
+    it('reads nullability off the property lines', () => {
+      // Guards the parser itself: if this stopped seeing `| null`, the assertion below would pass
+      // vacuously for every key.
+      expect([...properties].filter(([, meta]) => meta.nullable).map(([key]) => key)).toContain(
+        'WEBAUTHN_RP_ID'
+      )
+      expect(properties.get('SITE_URL')).toEqual({ nullable: false })
     })
 
     it('answers for every key, either with a default or with null', () => {
@@ -70,6 +83,11 @@ describe('api/self-hosted/auth-config/defaults', () => {
       const known = new Set(keys)
 
       expect([...defaultKeys, ...nullKeys].filter((key) => !known.has(key))).toEqual([])
+    })
+
+    it('answers with null only where the type declares the key nullable', () => {
+      // A `null` for a key typed `string` would be a lie the client cannot see coming.
+      expect(NULL_BY_DEFAULT.filter((key) => properties.get(key)?.nullable !== true)).toEqual([])
     })
   })
 
@@ -145,16 +163,29 @@ describe('api/self-hosted/auth-config/defaults', () => {
       for (const key of hooks) expect(DEFAULTS).toHaveProperty(key, false)
     })
 
-    it('treats the session limits as unset rather than zero', () => {
-      // `*time.Duration` in GoTrue: nil means "no timebox", which 0 would not.
-      expect(NULL_BY_DEFAULT).toContain('SESSIONS_TIMEBOX')
-      expect(NULL_BY_DEFAULT).toContain('SESSIONS_INACTIVITY_TIMEOUT')
+    it('reports the session limits as 0, which is how GoTrue reads "disabled"', () => {
+      // Both are `*time.Duration` in GoTrue, so nil means "no limit". The response type declares
+      // them `number`, not `number | null`, so 0 carries that meaning here.
+      expect(DEFAULTS).toHaveProperty('SESSIONS_TIMEBOX', 0)
+      expect(DEFAULTS).toHaveProperty('SESSIONS_INACTIVITY_TIMEOUT', 0)
     })
 
-    it('treats SMTP credentials and the site URL as unset', () => {
+    it('reports unset strings as empty, not null', () => {
       for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_ADMIN_EMAIL', 'SITE_URL']) {
-        expect(NULL_BY_DEFAULT).toContain(key)
+        expect(DEFAULTS).toHaveProperty(key, '')
+        expect(NULL_BY_DEFAULT).not.toContain(key)
       }
+    })
+
+    it('reserves null for the six keys the type declares nullable with no GoTrue default', () => {
+      expect([...NULL_BY_DEFAULT]).toEqual([
+        'NIMBUS_OAUTH_CLIENT_ID',
+        'NIMBUS_OAUTH_CLIENT_SECRET',
+        'OAUTH_SERVER_AUTHORIZATION_PATH',
+        'WEBAUTHN_RP_DISPLAY_NAME',
+        'WEBAUTHN_RP_ID',
+        'WEBAUTHN_RP_ORIGINS',
+      ])
     })
   })
 
@@ -187,6 +218,52 @@ describe('api/self-hosted/auth-config/defaults', () => {
 
     it('gives every computed key a complete default shape', () => {
       for (const key of COMPUTED_KEYS) expect(DEFAULTS).toHaveProperty(key)
+    })
+  })
+
+  describe('immutability', () => {
+    // DEFAULTS is module state shared by every request. A handler that built its response by
+    // mutating it in place would change what the next request sees, in a process that stays up for
+    // days. Freezing turns that into a throw at the point of the mistake.
+    it('refuses a top-level mutation', () => {
+      const escaped = DEFAULTS as unknown as Record<string, unknown>
+
+      expect(() => {
+        escaped.JWT_EXP = 1
+      }).toThrow(TypeError)
+      expect(DEFAULTS.JWT_EXP).toBe(3600)
+    })
+
+    it('refuses a mutation inside the nested custom-contents objects', () => {
+      const subjects = DEFAULTS.MAILER_SUBJECTS_CUSTOM_CONTENTS
+      if (subjects === undefined) throw new Error('MAILER_SUBJECTS_CUSTOM_CONTENTS has no default')
+      const escaped = subjects as unknown as Record<string, unknown>
+
+      expect(() => {
+        escaped.MAILER_SUBJECTS_INVITE = true
+      }).toThrow(TypeError)
+      expect(subjects.MAILER_SUBJECTS_INVITE).toBe(false)
+    })
+
+    it('refuses to grow NULL_BY_DEFAULT', () => {
+      const escaped = NULL_BY_DEFAULT as unknown as string[]
+
+      expect(() => escaped.push('SITE_URL')).toThrow(TypeError)
+      expect(NULL_BY_DEFAULT).toHaveLength(6)
+    })
+
+    it('hands a fresh import the untouched values', async () => {
+      const escaped = DEFAULTS as unknown as Record<string, unknown>
+      expect(() => {
+        escaped.SITE_URL = 'http://leaked'
+      }).toThrow(TypeError)
+
+      const reimported = await import('./defaults')
+
+      expect(reimported.DEFAULTS.SITE_URL).toBe('')
+      expect(reimported.DEFAULTS.MAILER_SUBJECTS_CUSTOM_CONTENTS).toEqual(
+        DEFAULTS.MAILER_SUBJECTS_CUSTOM_CONTENTS
+      )
     })
   })
 })

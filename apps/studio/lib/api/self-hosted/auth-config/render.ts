@@ -13,6 +13,9 @@ export function getConfigDir(): string {
   return process.env.GOTRUE_CONFIG_DIR ?? '/etc/gotrue'
 }
 
+/** Distinguishes concurrent writes, so two saves in flight cannot share one temp file. */
+let tmpSequence = 0
+
 /** Backslash first — escaping it after the others would double-escape what they inserted. */
 function escapeValue(value: string): string {
   return value
@@ -45,7 +48,8 @@ export function renderEnvFile(map: Record<string, string>): string {
 export async function writeEnvFile(content: string, dir: string): Promise<void> {
   await mkdir(dir, { recursive: true })
 
-  const tmpPath = join(dir, `${ENV_FILE_NAME}.tmp`)
+  tmpSequence += 1
+  const tmpPath = join(dir, `${ENV_FILE_NAME}.tmp.${process.pid}.${tmpSequence}`)
   // `mode` only applies when the file is created, so chmod covers the case where it already exists.
   await writeFile(tmpPath, content, { mode: 0o644 })
   await chmod(tmpPath, 0o644)

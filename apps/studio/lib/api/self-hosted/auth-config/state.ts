@@ -17,6 +17,9 @@ export function getStateDir(): string {
   return process.env.STUDIO_AUTH_STATE_DIR ?? '/var/lib/studio'
 }
 
+/** Distinguishes concurrent writes, so two saves in flight cannot share one temp file. */
+let tmpSequence = 0
+
 /**
  * Reads the state file. A missing file is not an error — it means nothing has been changed from the
  * UI yet, and every setting falls back to its default or mirrored env value.
@@ -54,7 +57,8 @@ export async function readState(dir = getStateDir()): Promise<AuthConfigState> {
 export async function writeState(state: AuthConfigState, dir = getStateDir()): Promise<void> {
   await mkdir(dir, { recursive: true })
 
-  const tmpPath = join(dir, `${STATE_FILE_NAME}.tmp`)
+  tmpSequence += 1
+  const tmpPath = join(dir, `${STATE_FILE_NAME}.tmp.${process.pid}.${tmpSequence}`)
   // `mode` only applies when the file is created, so chmod covers the case where it already exists.
   await writeFile(tmpPath, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 })
   await chmod(tmpPath, 0o600)

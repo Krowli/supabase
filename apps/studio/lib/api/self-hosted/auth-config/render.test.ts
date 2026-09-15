@@ -81,8 +81,10 @@ describe('api/self-hosted/auth-config/render', () => {
       '_LEADING',
       '',
     ])('throws on the invalid env key %j', (key) => {
+      // Passing an Error compares the message for equality, so the empty-key case asserts the whole
+      // message instead of matching a prefix that happens to end in a space.
       expect(() => renderEnvFile({ [key]: 'value' })).toThrow(
-        `auth-config env key is not a valid environment variable name: ${key}`
+        new Error(`auth-config env key is not a valid environment variable name: ${key}`)
       )
     })
 
@@ -125,6 +127,21 @@ describe('api/self-hosted/auth-config/render', () => {
 
       expect(readFileSync(join(dir, ENV_FILE_NAME), 'utf8')).toBe('A="second"\n')
       expect(statSync(join(dir, ENV_FILE_NAME)).mode & 0o777).toBe(0o644)
+    })
+
+    it('leaves one whole file when two writes overlap', async () => {
+      // Each write uses its own temp name, so concurrent saves cannot write into the same temp file
+      // and rename a blend of the two into place.
+      await Promise.all([
+        writeEnvFile('A="first"\n', dir),
+        writeEnvFile('A="second"\n', dir),
+        writeEnvFile('A="third"\n', dir),
+      ])
+
+      expect(readdirSync(dir)).toEqual([ENV_FILE_NAME])
+      expect(['A="first"\n', 'A="second"\n', 'A="third"\n']).toContain(
+        readFileSync(join(dir, ENV_FILE_NAME), 'utf8')
+      )
     })
   })
 })

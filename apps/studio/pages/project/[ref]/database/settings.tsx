@@ -70,13 +70,20 @@ const DatabaseSettings: NextPageWithLayout = () => {
           <PoolingModesModal />
         </>
       ) : (
-        <PageContainer size="small" className="pb-12">
-          <PageSection>
-            <PageSectionContent className="space-y-4 md:space-y-8">
-              <SettingsDatabaseEmptyStateLocal />
-            </PageSectionContent>
-          </PageSection>
-        </PageContainer>
+        // Self-hosted, connection pooling is the one section on this page that is settable: the
+        // fork serves `/config/pgbouncer` and `/config/supavisor` from the Supavisor admin API.
+        // Everything else here still lives in the compose file, which is what the card explains.
+        <>
+          <PageContainer size="small" className="flex flex-col gap-8 pb-12">
+            <ConnectionPooling />
+            <PageSection>
+              <PageSectionContent className="space-y-4 md:space-y-8">
+                <SettingsDatabaseEmptyStateLocal />
+              </PageSectionContent>
+            </PageSection>
+          </PageContainer>
+          <PoolingModesModal />
+        </>
       )}
     </>
   )

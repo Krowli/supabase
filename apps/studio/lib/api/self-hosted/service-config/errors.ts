@@ -11,3 +11,18 @@ export class ServiceConfigValidationError extends Error {
     this.name = 'ServiceConfigValidationError'
   }
 }
+
+/**
+ * A service behind a setting could not be reached, or answered with a failure. The route answers it
+ * with a 502: the request was fine, the thing behind it was not, and the operator needs to see that
+ * the difference is not their input.
+ *
+ * Distinct from {@link ServiceConfigValidationError} — a 400 — and from everything else, which
+ * `apiWrapper` turns into a 500.
+ */
+export class ServiceUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ServiceUnavailableError'
+  }
+}

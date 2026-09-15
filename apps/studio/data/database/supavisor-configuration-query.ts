@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 
 import { databaseKeys } from './keys'
 import { get, handleError } from '@/data/fetchers'
-import { IS_PLATFORM } from '@/lib/constants'
 import type { ResponseError, UseCustomQueryOptions } from '@/types'
 
 type SupavisorConfigurationVariables = {
@@ -36,6 +35,9 @@ export const useSupavisorConfigurationQuery = <TData = SupavisorConfigurationDat
   useQuery<SupavisorConfigurationData, SupavisorConfigurationError, TData>({
     queryKey: databaseKeys.poolingConfiguration(projectRef),
     queryFn: ({ signal }) => getSupavisorConfiguration({ projectRef }, signal),
-    enabled: enabled && typeof projectRef !== 'undefined' && IS_PLATFORM,
+    // No `IS_PLATFORM` gate: self-hosted this endpoint is served by
+    // `pages/api/platform/projects/[ref]/config/supavisor.ts`, which describes the single pooler
+    // this stack runs.
+    enabled: enabled && typeof projectRef !== 'undefined',
     ...options,
   })

@@ -72,6 +72,11 @@
         "BRAINTRUST_API_KEY",
         "BRAINTRUST_PROJECT_ID",
         "AUTH_JWT_SECRET",
+        // Supavisor's admin API, the tenant it serves, and the port clients pool through. Read by
+        // the self-hosted connection-pooling endpoints (see lib/api/self-hosted/service-config).
+        "SUPAVISOR_URL",
+        "POOLER_TENANT_ID",
+        "POOLER_PROXY_PORT_TRANSACTION",
         // The GoTrue config directory the self-hosted Auth pages render `99_studio.env` into, and
         // where they keep their own settings file (see lib/api/self-hosted/auth-config).
         "GOTRUE_CONFIG_DIR",

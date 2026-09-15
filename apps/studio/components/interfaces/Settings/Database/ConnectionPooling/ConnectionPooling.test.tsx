@@ -166,7 +166,7 @@ describe('ConnectionPooling', () => {
     expectEveryQueryCall(mockUseMaxConnectionsQuery, true)
   })
 
-  describe('the compute size in the field descriptions', () => {
+  describe('the defaults in the field descriptions', () => {
     beforeEach(() => {
       mockUseHighAvailability.mockReturnValue({ isHighAvailability: false, isPending: false })
       mockUsePgbouncerConfigQuery.mockReturnValue({
@@ -196,9 +196,10 @@ describe('ConnectionPooling', () => {
       ).toBeInTheDocument()
     })
 
-    it('leaves it out self-hosted, where a project has no compute size to name', () => {
-      // Self-hosted the addons query never runs and the project carries no `infra_compute_size`,
-      // so the sentence would otherwise end "compute size of ." with nothing in it.
+    it('quotes no default self-hosted, where both numbers belong to another stack', () => {
+      // Self-hosted the addons query never runs and the project carries no `infra_compute_size`, so
+      // `POOLING_OPTIMIZATIONS` lands on `ci_micro` and its 15 and 200 describe no part of this
+      // deployment. Supavisor's real values are in the inputs, read from the tenant.
       mockUseProjectAddonsQuery.mockReturnValue({ data: undefined, isSuccess: false })
       mockUseSelectedProjectQuery.mockReturnValue({
         data: { id: 1, ref: 'default', connectionString: 'postgresql://example' },
@@ -206,10 +207,18 @@ describe('ConnectionPooling', () => {
 
       customRender(<ConnectionPooling />)
 
-      expect(screen.getByText(/Pool size has a default of 15\./)).toBeInTheDocument()
       expect(
-        screen.getByText(/This value is fixed at 200 and cannot be changed\./)
+        screen.getByText(
+          /^The maximum number of connections made to the underlying Postgres cluster, per user\+db combination\.$/
+        )
       ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          /^The maximum number of concurrent client connections allowed\. This value cannot be changed\.$/
+        )
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/has a default of/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/fixed at/)).not.toBeInTheDocument()
       expect(screen.queryByText(/compute size/)).not.toBeInTheDocument()
     })
   })

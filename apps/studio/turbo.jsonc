@@ -76,6 +76,32 @@
         // where they keep their own settings file (see lib/api/self-hosted/auth-config).
         "GOTRUE_CONFIG_DIR",
         "STUDIO_AUTH_STATE_DIR",
+        // Where GoTrue reaches Studio to fetch the body of a custom email template.
+        "STUDIO_INTERNAL_URL",
+        // The GoTrue settings mirrored into Studio's own container, so the Auth pages can show what
+        // GoTrue is running with before anything has been saved from the UI. Read by name from
+        // `MIRRORED_ENV_KEYS` in lib/api/self-hosted/auth-config/index.ts, and listed one by one
+        // here because a name assembled at runtime declares nothing.
+        "GOTRUE_DISABLE_SIGNUP",
+        "GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED",
+        "GOTRUE_EXTERNAL_EMAIL_ENABLED",
+        "GOTRUE_EXTERNAL_PHONE_ENABLED",
+        "GOTRUE_JWT_EXP",
+        "GOTRUE_MAILER_AUTOCONFIRM",
+        "GOTRUE_MAILER_SUBJECTS_CONFIRMATION",
+        "GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE",
+        "GOTRUE_MAILER_SUBJECTS_INVITE",
+        "GOTRUE_MAILER_SUBJECTS_MAGIC_LINK",
+        "GOTRUE_MAILER_SUBJECTS_RECOVERY",
+        "GOTRUE_SITE_URL",
+        "GOTRUE_SMS_AUTOCONFIRM",
+        "GOTRUE_SMTP_ADMIN_EMAIL",
+        "GOTRUE_SMTP_HOST",
+        "GOTRUE_SMTP_PASS",
+        "GOTRUE_SMTP_PORT",
+        "GOTRUE_SMTP_SENDER_NAME",
+        "GOTRUE_SMTP_USER",
+        "GOTRUE_URI_ALLOW_LIST",
         "LOGFLARE_API_KEY",
         "LOGFLARE_PUBLIC_ACCESS_TOKEN",
         "LOGFLARE_PRIVATE_ACCESS_TOKEN",

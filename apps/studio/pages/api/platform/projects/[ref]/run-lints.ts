@@ -2,8 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next'
 
 import { constructHeaders } from '@/lib/api/apiHelpers'
 import { apiWrapper } from '@/lib/api/apiWrapper'
-import { DEFAULT_EXPOSED_SCHEMAS } from '@/lib/api/self-hosted/constants'
 import { getLints } from '@/lib/api/self-hosted/lints'
+import { getExposedSchemas } from '@/lib/api/self-hosted/service-config/postgrest'
 
 export default (req: NextApiRequest, res: NextApiResponse) => apiWrapper(req, res, handler)
 
@@ -14,7 +14,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     case 'GET':
       const { data, error } = await getLints({
         headers: constructHeaders(req.headers),
-        exposedSchemas: DEFAULT_EXPOSED_SCHEMAS,
+        exposedSchemas: await getExposedSchemas(),
       })
 
       if (error) {

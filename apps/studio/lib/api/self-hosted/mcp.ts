@@ -11,12 +11,12 @@ import {
 import { isFeatureEnabled, type Feature } from 'common/enabled-features'
 import { getEnabledFeaturesOverrideDisabledList } from 'common/enabled-features/overrides'
 
-import { DEFAULT_EXPOSED_SCHEMAS } from './constants'
 import { generateTypescriptTypes } from './generate-types'
 import { getLints } from './lints'
 import { retrieveAnalyticsData } from './logs'
 import { applyAndTrackMigrations, listMigrationVersions } from './migrations'
 import { executeQuery } from './query'
+import { getExposedSchemas } from './service-config/postgrest'
 import { getProjectSettings } from './settings'
 import { ResponseError } from '@/types'
 
@@ -165,7 +165,7 @@ export function getDebuggingOperations({
     async getSecurityAdvisors(_projectRef) {
       const { data, error } = await getLints({
         headers,
-        exposedSchemas: DEFAULT_EXPOSED_SCHEMAS,
+        exposedSchemas: await getExposedSchemas(),
       })
 
       if (error) {
@@ -177,7 +177,7 @@ export function getDebuggingOperations({
     async getPerformanceAdvisors(_projectRef) {
       const { data, error } = await getLints({
         headers,
-        exposedSchemas: DEFAULT_EXPOSED_SCHEMAS,
+        exposedSchemas: await getExposedSchemas(),
       })
 
       if (error) {

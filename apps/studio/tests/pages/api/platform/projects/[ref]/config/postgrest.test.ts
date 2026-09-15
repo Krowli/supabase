@@ -3,6 +3,7 @@ import { createMocks } from 'node-mocks-http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import handler from '../../../../../../../pages/api/platform/projects/[ref]/config/postgrest'
+import { POSTGRES_DATABASE } from '@/lib/api/self-hosted/constants'
 import { mswServer } from '@/tests/lib/msw'
 
 vi.mock('@/lib/constants', () => ({
@@ -16,7 +17,7 @@ vi.mock('@/lib/api/self-hosted/query', () => ({ executeQuery }))
 /** The role settings the next read sees, as `pg_db_role_setting` hands them over. */
 const withRoleSettings = (...settings: string[]) => {
   executeQuery.mockResolvedValue({
-    data: settings.map((setting) => ({ setting })),
+    data: settings.map((setting) => ({ setdatabase: 0, setting })),
     error: undefined,
   })
 }
@@ -122,9 +123,9 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       // The pool size the body carried is accepted and dropped: it is not an in-database setting.
       expect(executeQuery.mock.calls[0][0].query).toBe(
         [
-          "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public';",
-          "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
-          "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_schemas = 'public, graphql_public';`,
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_extra_search_path = 'public, extensions';`,
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_max_rows = '500';`,
           `NOTIFY pgrst, 'reload config';`,
           `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')

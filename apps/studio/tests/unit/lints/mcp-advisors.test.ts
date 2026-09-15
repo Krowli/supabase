@@ -22,6 +22,19 @@ vi.mock('@/lib/api/self-hosted/settings', () => ({
   }),
 }))
 
+// The exposed schemas come from the authenticator role rather than from PGRST_DB_SCHEMAS at import
+// time, so the advisors follow a list changed from the settings page. Mocked at the query, so the
+// whole path from role setting to getLints argument is exercised.
+const { executeQuery } = vi.hoisted(() => ({ executeQuery: vi.fn() }))
+vi.mock('@/lib/api/self-hosted/query', () => ({ executeQuery }))
+
+const withRoleSettings = (...settings: string[]) => {
+  executeQuery.mockResolvedValue({
+    data: settings.map((setting) => ({ setdatabase: 0, setting })),
+    error: undefined,
+  })
+}
+
 describe('MCP advisor operations pass exposedSchemas to getLints', () => {
   const headers = { Authorization: 'Bearer test' }
 
@@ -53,6 +66,10 @@ describe('MCP advisor operations pass exposedSchemas to getLints', () => {
       ],
       error: undefined,
     })
+
+    mockGetLints.mockClear()
+    executeQuery.mockReset()
+    withRoleSettings()
   })
 
   it('getSecurityAdvisors should pass exposedSchemas to getLints', async () => {
@@ -75,9 +92,21 @@ describe('MCP advisor operations pass exposedSchemas to getLints', () => {
     expect(callArgs.exposedSchemas).toBeTruthy()
   })
 
-  it('should use DEFAULT_EXPOSED_SCHEMAS constant', async () => {
+  it('should use the schemas the Data API exposes', async () => {
+    withRoleSettings('pgrst.db_schemas=public,newly_exposed')
+
     const ops = getDebuggingOperations({ headers })
     await ops.getSecurityAdvisors('test-project')
+
+    const callArgs = mockGetLints.mock.calls[0][0]
+    expect(callArgs.exposedSchemas).toBe('public,newly_exposed')
+  })
+
+  it('should fall back to DEFAULT_EXPOSED_SCHEMAS when the database cannot be reached', async () => {
+    executeQuery.mockResolvedValue({ data: undefined, error: new Error('connection refused') })
+
+    const ops = getDebuggingOperations({ headers })
+    await ops.getPerformanceAdvisors('test-project')
 
     const callArgs = mockGetLints.mock.calls[0][0]
     expect(callArgs.exposedSchemas).toBe(DEFAULT_EXPOSED_SCHEMAS)

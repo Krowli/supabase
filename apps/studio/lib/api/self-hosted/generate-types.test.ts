@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { DEFAULT_EXPOSED_SCHEMAS } from './constants'
 import { generateTypescriptTypes } from './generate-types'
 
 vi.mock('@/data/fetchers', () => ({
@@ -14,13 +15,20 @@ vi.mock('./util', () => ({
   assertSelfHosted: vi.fn(),
 }))
 
-// A distinctive, non-default value so the assertions verify the URL reflects the
-// configured exposed schemas (PGRST_DB_SCHEMAS) — whatever they are — rather than
-// coupling the test to a specific default.
+// The exposed schemas are read from the database rather than from PGRST_DB_SCHEMAS, because the
+// settings page can change them. Mocked at the query so the whole path is exercised.
+const { executeQuery } = vi.hoisted(() => ({ executeQuery: vi.fn() }))
+vi.mock('./query', () => ({ executeQuery }))
+
+/** A distinctive, non-default value, so an assertion cannot pass on the default by accident. */
 const EXPOSED_SCHEMAS = 'public,custom_schema,graphql_public'
-vi.mock('./constants', () => ({
-  DEFAULT_EXPOSED_SCHEMAS: 'public,custom_schema,graphql_public',
-}))
+
+const withRoleSettings = (...settings: string[]) => {
+  executeQuery.mockResolvedValue({
+    data: settings.map((setting) => ({ setdatabase: 0, setting })),
+    error: undefined,
+  })
+}
 
 describe('api/self-hosted/generate-types', () => {
   let mockFetchGet: ReturnType<typeof vi.fn>
@@ -32,6 +40,9 @@ describe('api/self-hosted/generate-types', () => {
 
     mockFetchGet = vi.mocked(fetchers.fetchGet)
     mockAssertSelfHosted = vi.mocked(util.assertSelfHosted)
+
+    executeQuery.mockReset()
+    withRoleSettings(`pgrst.db_schemas=${EXPOSED_SCHEMAS}`)
   })
 
   describe('generateTypescriptTypes', () => {
@@ -43,7 +54,7 @@ describe('api/self-hosted/generate-types', () => {
       expect(mockAssertSelfHosted).toHaveBeenCalled()
     })
 
-    it('should request types for the configured exposed schemas', async () => {
+    it('should request types for the schemas the Data API exposes', async () => {
       mockFetchGet.mockResolvedValue({ types: 'export type User = {}' })
 
       await generateTypescriptTypes({ headers: {} })
@@ -54,6 +65,26 @@ describe('api/self-hosted/generate-types', () => {
       expect(callUrl).toContain(`included_schemas=${EXPOSED_SCHEMAS}`)
       // No hardcoded exclude list — the exposed-schemas config is the source of truth.
       expect(callUrl).not.toContain('excluded_schemas=')
+    })
+
+    it('should follow a schema list changed from the settings page', async () => {
+      // The point of reading from the database: a schema exposed after the container started is in
+      // the generated types, where PGRST_DB_SCHEMAS at import time would have missed it.
+      withRoleSettings('pgrst.db_schemas=public,newly_exposed')
+      mockFetchGet.mockResolvedValue({ types: 'export type User = {}' })
+
+      await generateTypescriptTypes({ headers: {} })
+
+      expect(mockFetchGet.mock.calls[0][0]).toContain('included_schemas=public,newly_exposed')
+    })
+
+    it('should fall back to the container env when the database cannot be reached', async () => {
+      executeQuery.mockResolvedValue({ data: undefined, error: new Error('connection refused') })
+      mockFetchGet.mockResolvedValue({ types: 'export type User = {}' })
+
+      await generateTypescriptTypes({ headers: {} })
+
+      expect(mockFetchGet.mock.calls[0][0]).toContain(`included_schemas=${DEFAULT_EXPOSED_SCHEMAS}`)
     })
 
     it('should pass headers to fetchGet', async () => {

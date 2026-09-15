@@ -1,19 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { DEFAULT_AUTH_JWT_SECRET, DEFAULT_EXPOSED_SCHEMAS } from '../constants'
+import { DEFAULT_AUTH_JWT_SECRET, DEFAULT_EXPOSED_SCHEMAS, POSTGRES_DATABASE } from '../constants'
 import { ServiceConfigValidationError } from './errors'
-import { getPostgrestConfig, updatePostgrestConfig } from './postgrest'
+import { getExposedSchemas, getPostgrestConfig, updatePostgrestConfig } from './postgrest'
 
 const { executeQuery } = vi.hoisted(() => ({ executeQuery: vi.fn() }))
 vi.mock('../query', () => ({ executeQuery }))
 
-/** The role settings the next read sees, as `pg_db_role_setting` hands them over. */
-const withRoleSettings = (...settings: string[]) => {
-  executeQuery.mockResolvedValue({
-    data: settings.map((setting) => ({ setting })),
-    error: undefined,
-  })
+/** The oid of a database-scoped row. Any non-zero `setdatabase` names one database. */
+const THIS_DATABASE = 16384
+
+/**
+ * The role settings the next read sees, as `pg_db_role_setting` hands them over. Typed loosely
+ * because that is how they arrive: an oid may reach JavaScript as a number or as a string.
+ */
+const withRows = (...rows: { setdatabase: unknown; setting: unknown }[]) => {
+  executeQuery.mockResolvedValue({ data: rows, error: undefined })
 }
+
+/** Settings written with a plain `ALTER ROLE`, which apply to every database. */
+const withRoleSettings = (...settings: string[]) =>
+  withRows(...settings.map((setting) => ({ setdatabase: 0, setting })))
+
+/** Settings written with `ALTER ROLE ... IN DATABASE`, which apply to this one. */
+const withDatabaseSettings = (...settings: string[]) =>
+  withRows(...settings.map((setting) => ({ setdatabase: THIS_DATABASE, setting })))
 
 /** The SQL of the call that wrote, which is always the first of the two an update makes. */
 const writtenSql = (): string => executeQuery.mock.calls[0][0].query
@@ -40,6 +51,60 @@ describe('api/self-hosted/service-config/postgrest', () => {
       expect(executeQuery).toHaveBeenCalledTimes(1)
       expect(writtenSql()).toContain('pg_catalog.pg_db_role_setting')
       expect(writtenSql()).toContain("r.rolname = 'authenticator'")
+    })
+
+    it('asks only for rows that apply to the database it is connected to', async () => {
+      // A row scoped to some other database describes a connection this stack does not make.
+      await getPostgrestConfig()
+
+      expect(writtenSql()).toContain('s.setdatabase')
+      expect(writtenSql()).toContain('s.setdatabase = 0')
+      expect(writtenSql()).toContain(
+        's.setdatabase = (select oid from pg_database where datname = current_database())'
+      )
+    })
+
+    it('lets a database-scoped setting win over the global one', async () => {
+      // Postgres resolves the scoped row last, so a global setting left over from an earlier
+      // install must not be the answer once this database has one of its own.
+      withRows(
+        { setdatabase: 0, setting: 'pgrst.db_schemas=public' },
+        { setdatabase: THIS_DATABASE, setting: 'pgrst.db_schemas=public,api' }
+      )
+
+      await expect(getPostgrestConfig()).resolves.toMatchObject({ db_schema: 'public,api' })
+    })
+
+    it('lets the scoped setting win whichever order the rows arrive in', async () => {
+      withRows(
+        { setdatabase: THIS_DATABASE, setting: 'pgrst.db_schemas=public,api' },
+        { setdatabase: 0, setting: 'pgrst.db_schemas=public' }
+      )
+
+      await expect(getPostgrestConfig()).resolves.toMatchObject({ db_schema: 'public,api' })
+    })
+
+    it('falls back to the global setting for a field the scoped row does not carry', async () => {
+      withRows(
+        { setdatabase: 0, setting: 'pgrst.db_max_rows=500' },
+        { setdatabase: THIS_DATABASE, setting: 'pgrst.db_schemas=public,api' }
+      )
+
+      await expect(getPostgrestConfig()).resolves.toMatchObject({
+        db_schema: 'public,api',
+        max_rows: 500,
+      })
+    })
+
+    it('reads the oids whether they arrive as numbers or as strings', async () => {
+      // Whether an oid comes back as a number or a string is the driver's business, not this
+      // code's, and mistaking a global row for a scoped one would invert which setting wins.
+      withRows(
+        { setdatabase: '0', setting: 'pgrst.db_schemas=public' },
+        { setdatabase: '16384', setting: 'pgrst.db_schemas=public,api' }
+      )
+
+      await expect(getPostgrestConfig()).resolves.toMatchObject({ db_schema: 'public,api' })
     })
 
     it('reads the role settings PostgREST runs on', async () => {
@@ -145,9 +210,9 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
       expect(writtenSql()).toBe(
         [
-          "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public';",
-          "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
-          "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_schemas = 'public, graphql_public';`,
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_extra_search_path = 'public, extensions';`,
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_max_rows = '500';`,
           `NOTIFY pgrst, 'reload config';`,
           `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')
@@ -161,6 +226,15 @@ describe('api/self-hosted/service-config/postgrest', () => {
       expect(writtenSql().endsWith(`NOTIFY pgrst, 'reload schema';`)).toBe(true)
     })
 
+    it('scopes the write to the database PostgREST is connected to', async () => {
+      // A global `ALTER ROLE ... SET` is shadowed by any database-scoped row already on the role,
+      // so a save would appear to work and change nothing. Write where the read looks.
+      await updatePostgrestConfig({ max_rows: 500 })
+
+      expect(writtenSql()).toContain(`IN DATABASE "${POSTGRES_DATABASE}"`)
+      expect(writtenSql()).not.toContain('ALTER ROLE authenticator SET')
+    })
+
     it('reloads the schema cache too, since the exposed schemas may have moved', async () => {
       // Which tables and functions PostgREST serves lives in the schema cache rather than in the
       // config, so a schema newly named in `db-schemas` is not served until the cache is rebuilt.
@@ -168,7 +242,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
       expect(writtenSql()).toBe(
         [
-          "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, api';",
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_schemas = 'public, api';`,
           `NOTIFY pgrst, 'reload config';`,
           `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')
@@ -180,7 +254,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
       expect(writtenSql()).toBe(
         [
-          "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
+          `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_max_rows = '500';`,
           `NOTIFY pgrst, 'reload config';`,
           `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')
@@ -212,7 +286,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
       await updatePostgrestConfig({ db_schema: ' public ,graphql_public,' })
 
       expect(writtenSql()).toContain(
-        "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public';"
+        `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_schemas = 'public, graphql_public';`
       )
     })
 
@@ -220,7 +294,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
       await updatePostgrestConfig({ db_extra_search_path: '' })
 
       expect(writtenSql()).toContain(
-        "ALTER ROLE authenticator SET pgrst.db_extra_search_path = '';"
+        `ALTER ROLE authenticator IN DATABASE "${POSTGRES_DATABASE}" SET pgrst.db_extra_search_path = '';`
       )
     })
 
@@ -266,6 +340,65 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
         expect(executeQuery).not.toHaveBeenCalled()
       })
+    })
+  })
+
+  describe('getExposedSchemas', () => {
+    it('answers with the schemas the role carries', async () => {
+      withDatabaseSettings('pgrst.db_schemas=public,api')
+
+      await expect(getExposedSchemas()).resolves.toBe('public,api')
+    })
+
+    it('answers with the env when the role carries nothing', async () => {
+      await expect(getExposedSchemas()).resolves.toBe(DEFAULT_EXPOSED_SCHEMAS)
+    })
+
+    it('answers with the env when the database cannot be reached', async () => {
+      // Its callers are generating types and running lints. A stale schema list is a better answer
+      // than refusing to do the thing they were asked for.
+      executeQuery.mockResolvedValue({ data: undefined, error: new Error('connection refused') })
+
+      await expect(getExposedSchemas()).resolves.toBe(DEFAULT_EXPOSED_SCHEMAS)
+    })
+  })
+
+  describe('when POSTGRES_DB is not a name a setting can be scoped to', () => {
+    const loadWithDatabase = async (name: string) => {
+      vi.resetModules()
+      vi.doMock('../query', () => ({ executeQuery }))
+      vi.doMock('../constants', async () => ({
+        ...(await vi.importActual<typeof import('../constants')>('../constants')),
+        POSTGRES_DATABASE: name,
+      }))
+      return await import('./postgrest')
+    }
+
+    afterEach(() => {
+      vi.doUnmock('../constants')
+      vi.resetModules()
+    })
+
+    it.each(['my-db', 'db"; drop database postgres --', '1db', '', 'a'.repeat(64)])(
+      'refuses to write, given %s',
+      async (name) => {
+        const { updatePostgrestConfig: update } = await loadWithDatabase(name)
+
+        // Not a client error: the container's POSTGRES_DB is wrong, so this is a 500 to see.
+        await expect(update({ max_rows: 500 })).rejects.toThrow(/POSTGRES_DB is not a name/)
+        await expect(update({ max_rows: 500 })).rejects.not.toBeInstanceOf(
+          ServiceConfigValidationError
+        )
+        expect(executeQuery).not.toHaveBeenCalled()
+      }
+    )
+
+    it('writes as usual for a name that is a plain identifier', async () => {
+      const { updatePostgrestConfig: update } = await loadWithDatabase('my_app')
+
+      await update({ max_rows: 500 })
+
+      expect(writtenSql()).toContain('IN DATABASE "my_app"')
     })
   })
 })

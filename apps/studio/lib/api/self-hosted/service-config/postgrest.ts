@@ -28,6 +28,15 @@ export type UpdatePostgrestConfigInput = Omit<UpdatePostgrestConfigBody, 'db_poo
  *
  * `setconfig` is a `text[]` of `name=value`, one array per (role, database) pair, so a role
  * configured both globally and per database yields more than one row.
+ *
+ * Three of the four settings this module writes are in-database settings and reload without a
+ * restart: `db-schemas`, `db-extra-search-path` and `db-max-rows`. **`db-pool` and
+ * `db-pool-acquisition-timeout` are neither** — the PostgREST 14 reference gives both "In-Database:
+ * n/a" and "Reloadable: N", so a `pgrst.db_pool` on the role is a GUC nothing reads, and the pool
+ * size can only be changed by the container env plus a restart. They are written and read here
+ * because the platform's contract carries them; the value the UI shows after a save is the value
+ * Studio stored, not the pool PostgREST is running on.
+ * See https://docs.postgrest.org/en/v14/references/configuration.html#db-pool.
  */
 const ROLE_SETTINGS_QUERY = `select unnest(s.setconfig) as setting
 from pg_catalog.pg_db_role_setting s

@@ -126,6 +126,7 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
           "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
           "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
           `NOTIFY pgrst, 'reload config';`,
+          `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')
       )
     })

@@ -149,6 +149,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
           "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
           "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
           `NOTIFY pgrst, 'reload config';`,
+          `NOTIFY pgrst, 'reload schema';`,
         ].join('\n')
       )
     })
@@ -157,14 +158,32 @@ describe('api/self-hosted/service-config/postgrest', () => {
       await updatePostgrestConfig({ max_rows: 500 })
 
       expect(executeQuery).toHaveBeenCalledTimes(2)
-      expect(writtenSql().endsWith(`NOTIFY pgrst, 'reload config';`)).toBe(true)
+      expect(writtenSql().endsWith(`NOTIFY pgrst, 'reload schema';`)).toBe(true)
+    })
+
+    it('reloads the schema cache too, since the exposed schemas may have moved', async () => {
+      // Which tables and functions PostgREST serves lives in the schema cache rather than in the
+      // config, so a schema newly named in `db-schemas` is not served until the cache is rebuilt.
+      await updatePostgrestConfig({ db_schema: 'public,api' })
+
+      expect(writtenSql()).toBe(
+        [
+          "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, api';",
+          `NOTIFY pgrst, 'reload config';`,
+          `NOTIFY pgrst, 'reload schema';`,
+        ].join('\n')
+      )
     })
 
     it('leaves the fields the body does not name alone', async () => {
       await updatePostgrestConfig({ max_rows: 500 })
 
       expect(writtenSql()).toBe(
-        "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';\nNOTIFY pgrst, 'reload config';"
+        [
+          "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
+          `NOTIFY pgrst, 'reload config';`,
+          `NOTIFY pgrst, 'reload schema';`,
+        ].join('\n')
       )
     })
 
@@ -178,7 +197,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
       // never reads and the next GET would hand it back as though the pool had changed.
       await updatePostgrestConfig(body)
 
-      expect(writtenSql()).toBe(`NOTIFY pgrst, 'reload config';`)
+      expect(writtenSql()).toBe(`NOTIFY pgrst, 'reload config';\nNOTIFY pgrst, 'reload schema';`)
       expect(writtenSql()).not.toContain('pgrst.db_pool')
       expect(writtenSql()).not.toContain('RESET')
     })

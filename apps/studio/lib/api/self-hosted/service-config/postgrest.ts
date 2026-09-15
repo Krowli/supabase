@@ -204,9 +204,13 @@ export async function updatePostgrestConfig(
     statements.push(setSetting('db_max_rows', String(maxRows)))
   }
 
-  // One statement short of useless on its own, but a reload with nothing changed costs nothing and
-  // keeps an empty PATCH on the same path as every other one.
+  // Both channels. Changing `db-schemas` changes which tables and functions PostgREST serves, and
+  // that lives in the schema cache rather than in the config — the docs give the two as separate
+  // notifications, and note that a schema reload also reloads the in-database configuration. So
+  // the pair is right whichever field moved, and costs nothing when neither needed it. Sent even
+  // for a PATCH that changed nothing, which keeps every request on one path.
   statements.push(`NOTIFY pgrst, 'reload config';`)
+  statements.push(`NOTIFY pgrst, 'reload schema';`)
 
   const { error } = await executeQuery({ query: statements.join('\n') })
   if (error) throw error

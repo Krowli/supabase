@@ -104,25 +104,40 @@ function poolMode(tenant: Tenant): 'transaction' | 'session' {
 }
 
 /**
- * What an operator types into a client. The password is left as a placeholder on purpose — it is
- * the one part of this that Studio must not put on a settings page.
+ * Where a client reaches the pooler, which is **not** where Supavisor reaches Postgres.
+ *
+ * The tenant's own `db_host` and `db_port` are the upstream database — in this stack an internal
+ * compose name on 5432 — and they are deliberately not exposed through either endpoint. What the UI
+ * calls `db_host`/`db_port`/`db_user` is what a client connects to, and the Connect sheet prints
+ * those three fields verbatim rather than reading `connection_string`
+ * (`ConnectStepsSection.tsx`, `useConnectionStringDatabases.ts`, `DatabaseSettings.utils.ts`). So
+ * handing back the upstream address there would put an unroutable host and the wrong port into the
+ * connection strings an operator copies.
  *
  * The username carries the tenant id after a dot: that is how Supavisor routes a connection to a
  * tenant when the client cannot send SNI.
  */
-const connectionString = (tenant: Tenant): string =>
-  `postgresql://postgres.${poolerTenantId()}:[YOUR-PASSWORD]@${publicHost()}:${transactionPort()}/${
-    asString(tenant.db_database) ?? 'postgres'
-  }`
+const poolerEndpoint = (tenant: Tenant) => ({
+  db_host: publicHost(),
+  db_name: asString(tenant.db_database) ?? 'postgres',
+  db_port: transactionPort(),
+  db_user: `postgres.${poolerTenantId()}`,
+})
+
+/**
+ * What an operator types into a client. The password is left as a placeholder on purpose — it is
+ * the one part of this that Studio must not put on a settings page.
+ */
+const connectionString = (tenant: Tenant): string => {
+  const { db_host, db_name, db_port, db_user } = poolerEndpoint(tenant)
+  return `postgresql://${db_user}:[YOUR-PASSWORD]@${db_host}:${db_port}/${db_name}`
+}
 
 function toPgbouncerConfig(tenant: Tenant): PgbouncerConfig {
   return {
     connection_string: connectionString(tenant),
     db_dns_name: publicHost(),
-    db_host: asString(tenant.db_host) ?? '',
-    db_name: asString(tenant.db_database) ?? 'postgres',
-    db_port: asNumber(tenant.db_port) ?? 5432,
-    db_user: 'postgres',
+    ...poolerEndpoint(tenant),
     default_pool_size: asNumber(tenant.default_pool_size),
     // Supavisor has no equivalent setting. The platform's value is echoed so the field the form
     // sends back is the one it was given, and the UI has something to render.
@@ -158,10 +173,8 @@ export async function getSupavisorConfig(): Promise<SupavisorConfig[]> {
       // Deprecated alias of the above; both are sent because different call sites read each.
       connectionString: connection,
       database_type: 'PRIMARY',
-      db_host: asString(tenant.db_host) ?? '',
-      db_name: asString(tenant.db_database) ?? 'postgres',
-      db_port: asNumber(tenant.db_port) ?? 5432,
-      db_user: 'postgres',
+      // The pooler's address, not the upstream database's — see `poolerEndpoint`.
+      ...poolerEndpoint(tenant),
       default_pool_size: asNumber(tenant.default_pool_size) ?? null,
       identifier: 'default',
       // Supavisor authenticates upstream with SCRAM against the Postgres image this stack ships.

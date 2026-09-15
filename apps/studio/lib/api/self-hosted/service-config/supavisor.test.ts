@@ -134,10 +134,10 @@ describe('api/self-hosted/service-config/supavisor', () => {
         connection_string:
           'postgresql://postgres.dev_tenant:[YOUR-PASSWORD]@db.example.test:6543/postgres',
         db_dns_name: 'db.example.test',
-        db_host: 'supabase-db',
+        db_host: 'db.example.test',
         db_name: 'postgres',
-        db_port: 5432,
-        db_user: 'postgres',
+        db_port: 6543,
+        db_user: 'postgres.dev_tenant',
         default_pool_size: 20,
         ignore_startup_parameters: 'options,extra_float_digits',
         inserted_at: '2026-01-01T00:00:00',
@@ -146,6 +146,18 @@ describe('api/self-hosted/service-config/supavisor', () => {
         pool_mode: 'transaction',
         ssl_enforced: false,
       })
+    })
+
+    it('never hands back the upstream database address, which no client can reach', async () => {
+      supavisorHolds({ db_host: 'supabase-db', db_port: 5432 })
+
+      const config = await getPoolerConfig()
+
+      // The Connect sheet prints these three verbatim, so they have to be the pooler's.
+      expect(config.db_host).toBe('db.example.test')
+      expect(config.db_port).toBe(6543)
+      expect(config.db_user).toBe('postgres.dev_tenant')
+      expect(JSON.stringify(config)).not.toContain('supabase-db')
     })
 
     it('reads the pool mode off the manager user', async () => {
@@ -213,10 +225,10 @@ describe('api/self-hosted/service-config/supavisor', () => {
           connectionString:
             'postgresql://postgres.dev_tenant:[YOUR-PASSWORD]@db.example.test:6543/postgres',
           database_type: 'PRIMARY',
-          db_host: 'supabase-db',
+          db_host: 'db.example.test',
           db_name: 'postgres',
-          db_port: 5432,
-          db_user: 'postgres',
+          db_port: 6543,
+          db_user: 'postgres.dev_tenant',
           default_pool_size: 20,
           identifier: 'default',
           is_using_scram_auth: true,
@@ -224,6 +236,19 @@ describe('api/self-hosted/service-config/supavisor', () => {
           pool_mode: 'transaction',
         },
       ])
+    })
+
+    it('describes the pooler rather than the upstream database', async () => {
+      supavisorHolds({ db_host: 'supabase-db', db_port: 5432 })
+
+      const [config] = await getSupavisorConfig()
+
+      expect(config).toMatchObject({
+        db_host: 'db.example.test',
+        db_port: 6543,
+        db_user: 'postgres.dev_tenant',
+      })
+      expect(JSON.stringify(config)).not.toContain('supabase-db')
     })
 
     it('is identified as the project the pooling dialog looks for', async () => {

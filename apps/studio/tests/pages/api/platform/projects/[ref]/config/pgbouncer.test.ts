@@ -93,10 +93,10 @@ describe('/api/platform/projects/[ref]/config/pgbouncer', () => {
         connection_string:
           'postgresql://postgres.dev_tenant:[YOUR-PASSWORD]@db.example.test:6543/postgres',
         db_dns_name: 'db.example.test',
-        db_host: 'supabase-db',
+        db_host: 'db.example.test',
         db_name: 'postgres',
-        db_port: 5432,
-        db_user: 'postgres',
+        db_port: 6543,
+        db_user: 'postgres.dev_tenant',
         default_pool_size: 20,
         ignore_startup_parameters: 'options,extra_float_digits',
         inserted_at: '2026-01-01T00:00:00',

@@ -79,10 +79,10 @@ describe('/api/platform/projects/[ref]/config/supavisor', () => {
           connectionString:
             'postgresql://postgres.dev_tenant:[YOUR-PASSWORD]@db.example.test:6543/postgres',
           database_type: 'PRIMARY',
-          db_host: 'supabase-db',
+          db_host: 'db.example.test',
           db_name: 'postgres',
-          db_port: 5432,
-          db_user: 'postgres',
+          db_port: 6543,
+          db_user: 'postgres.dev_tenant',
           default_pool_size: 20,
           identifier: 'default',
           is_using_scram_auth: true,

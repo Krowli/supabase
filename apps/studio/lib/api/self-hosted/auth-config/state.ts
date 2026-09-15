@@ -21,11 +21,31 @@ export function getStateDir(): string {
 let tmpSequence = 0
 
 /**
- * Reads the state file. A missing file is not an error — it means nothing has been changed from the
- * UI yet, and every setting falls back to its default or mirrored env value.
+ * The shape a state file name may take. The name is joined onto a directory path, so anything
+ * carrying a separator or a dot segment — or any extension other than `.json` — is refused rather
+ * than read from or written to.
  */
-export async function readState(dir = getStateDir()): Promise<AuthConfigState> {
-  const path = join(dir, STATE_FILE_NAME)
+const STATE_FILE_NAME_PATTERN = /^[a-z0-9-]+\.json$/
+
+function assertStateFileName(fileName: string): void {
+  if (!STATE_FILE_NAME_PATTERN.test(fileName)) {
+    throw new Error(`invalid state file name: ${fileName}`)
+  }
+}
+
+/**
+ * Reads a JSON state file. A missing file is not an error — it means nothing has been changed from
+ * the UI yet, and every setting falls back to its default or mirrored env value.
+ *
+ * Shared by the services that keep their own record of what the UI saved, because a running
+ * service's own config is not a source of truth Studio can read back.
+ */
+export async function readJsonState(
+  fileName: string,
+  dir = getStateDir()
+): Promise<Record<string, unknown>> {
+  assertStateFileName(fileName)
+  const path = join(dir, fileName)
 
   let raw: string
   try {
@@ -35,32 +55,49 @@ export async function readState(dir = getStateDir()): Promise<AuthConfigState> {
     throw error
   }
 
+  const name = fileName.slice(0, -'.json'.length)
+
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new Error(`auth-config state is not valid JSON: ${path}`)
+    throw new Error(`${name} state is not valid JSON: ${path}`)
   }
 
   // A JSON array, string or number parses fine but is not a state object.
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`auth-config state is not valid JSON: ${path}`)
+    throw new Error(`${name} state is not valid JSON: ${path}`)
   }
 
-  return parsed as AuthConfigState
+  return parsed as Record<string, unknown>
 }
 
 /**
- * Writes the state file atomically: a reader either sees the previous file or the new one, never a
- * half-written one. Mode 0600 because the state holds SMTP passwords and OAuth secrets.
+ * Writes a JSON state file atomically: a reader either sees the previous file or the new one, never
+ * a half-written one. Mode 0600 because a state file holds SMTP passwords and OAuth secrets.
  */
-export async function writeState(state: AuthConfigState, dir = getStateDir()): Promise<void> {
+export async function writeJsonState(
+  fileName: string,
+  state: Record<string, unknown>,
+  dir = getStateDir()
+): Promise<void> {
+  assertStateFileName(fileName)
   await mkdir(dir, { recursive: true })
 
   tmpSequence += 1
-  const tmpPath = join(dir, `${STATE_FILE_NAME}.tmp.${process.pid}.${tmpSequence}`)
+  const tmpPath = join(dir, `${fileName}.tmp.${process.pid}.${tmpSequence}`)
   // `mode` only applies when the file is created, so chmod covers the case where it already exists.
   await writeFile(tmpPath, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 })
   await chmod(tmpPath, 0o600)
-  await rename(tmpPath, join(dir, STATE_FILE_NAME))
+  await rename(tmpPath, join(dir, fileName))
+}
+
+/** The auth settings Studio saved. See {@link readJsonState}. */
+export async function readState(dir = getStateDir()): Promise<AuthConfigState> {
+  return await readJsonState(STATE_FILE_NAME, dir)
+}
+
+/** The auth settings Studio saved. See {@link writeJsonState}. */
+export async function writeState(state: AuthConfigState, dir = getStateDir()): Promise<void> {
+  await writeJsonState(STATE_FILE_NAME, state, dir)
 }

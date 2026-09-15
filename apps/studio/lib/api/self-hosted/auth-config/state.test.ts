@@ -11,7 +11,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getStateDir, readState, STATE_FILE_NAME, writeState } from './state'
+import {
+  getStateDir,
+  readJsonState,
+  readState,
+  STATE_FILE_NAME,
+  writeJsonState,
+  writeState,
+} from './state'
 
 describe('api/self-hosted/auth-config/state', () => {
   let dir: string
@@ -135,6 +142,84 @@ describe('api/self-hosted/auth-config/state', () => {
       expect(readdirSync(dir)).toEqual([STATE_FILE_NAME])
       const state = await readState(dir)
       expect(['http://first', 'http://second', 'http://third']).toContain(state.SITE_URL)
+    })
+  })
+
+  describe('readJsonState / writeJsonState', () => {
+    const OTHER_FILE = 'postgrest-config.json'
+
+    it('round-trips a state object under the name it was given', async () => {
+      await writeJsonState(OTHER_FILE, { db_pool: 20 }, dir)
+
+      expect(readdirSync(dir)).toEqual([OTHER_FILE])
+      await expect(readJsonState(OTHER_FILE, dir)).resolves.toEqual({ db_pool: 20 })
+    })
+
+    it('returns an empty state when the file does not exist', async () => {
+      await expect(readJsonState(OTHER_FILE, dir)).resolves.toEqual({})
+    })
+
+    it('keeps one service out of another service state file', async () => {
+      await writeJsonState(OTHER_FILE, { db_pool: 20 }, dir)
+      await writeState({ SITE_URL: 'http://localhost:3000' }, dir)
+
+      await expect(readJsonState(OTHER_FILE, dir)).resolves.toEqual({ db_pool: 20 })
+      await expect(readState(dir)).resolves.toEqual({ SITE_URL: 'http://localhost:3000' })
+    })
+
+    it('writes the file 0600 and leaves no temporary file behind', async () => {
+      await writeJsonState(OTHER_FILE, { secret: 'a-secret' }, dir)
+
+      expect(statSync(join(dir, OTHER_FILE)).mode & 0o777).toBe(0o600)
+      expect(readdirSync(dir)).toEqual([OTHER_FILE])
+    })
+
+    it('creates the state directory when it is missing', async () => {
+      const nested = join(dir, 'var', 'lib', 'studio')
+
+      await writeJsonState(OTHER_FILE, { db_pool: 20 }, nested)
+
+      await expect(readJsonState(OTHER_FILE, nested)).resolves.toEqual({ db_pool: 20 })
+    })
+
+    it('names the file in the error when it is not parsable JSON', async () => {
+      writeFileSync(join(dir, OTHER_FILE), '{ "db_pool": ')
+
+      await expect(readJsonState(OTHER_FILE, dir)).rejects.toThrow(
+        `postgrest-config state is not valid JSON: ${join(dir, OTHER_FILE)}`
+      )
+    })
+
+    it('throws when the file parses to something that is not an object', async () => {
+      writeFileSync(join(dir, OTHER_FILE), '["db_pool"]')
+
+      await expect(readJsonState(OTHER_FILE, dir)).rejects.toThrow(
+        `postgrest-config state is not valid JSON: ${join(dir, OTHER_FILE)}`
+      )
+    })
+
+    it('surfaces a read error that is not "file missing"', async () => {
+      mkdirSync(join(dir, OTHER_FILE))
+
+      await expect(readJsonState(OTHER_FILE, dir)).rejects.toThrow(/EISDIR/)
+    })
+
+    it.each([
+      '../escape.json',
+      'nested/state.json',
+      'Auth-Config.json',
+      'auth-config.yaml',
+      'auth-config',
+      '.json',
+    ])('refuses to read or write %s', async (fileName) => {
+      // The name is joined onto a directory path, so a caller must not be able to reach outside it.
+      await expect(readJsonState(fileName, dir)).rejects.toThrow(
+        `invalid state file name: ${fileName}`
+      )
+      await expect(writeJsonState(fileName, {}, dir)).rejects.toThrow(
+        `invalid state file name: ${fileName}`
+      )
+      expect(readdirSync(dir)).toEqual([])
     })
   })
 })

@@ -14,6 +14,22 @@ vi.mock('@/lib/constants', () => ({
 
 const fetchMock = vi.fn()
 
+const { executeQuery } = vi.hoisted(() => ({ executeQuery: vi.fn() }))
+vi.mock('@/lib/api/self-hosted/query', () => ({ executeQuery }))
+
+/** The tenant row as `_realtime.tenants` holds it, which is what a read answers from. */
+const TENANT_ROW = {
+  max_concurrent_users: 200,
+  max_events_per_second: 100,
+  max_bytes_per_second: 100_000,
+  max_channels_per_client: 100,
+  max_joins_per_second: 100,
+  max_presence_events_per_second: 1000,
+  max_payload_size_in_kb: 3000,
+  private_only: false,
+  suspend: false,
+}
+
 /** The tenant as Realtime's `TenantView` serialises it, wrapped the way the controller answers. */
 const TENANT = {
   id: '4b2a1f6e-1f1a-4a1e-9f4d-0b0a4c6d5e7f',
@@ -47,6 +63,8 @@ describe('/api/platform/projects/[ref]/config/realtime', () => {
     mswServer.close()
     fetchMock.mockReset()
     fetchMock.mockImplementation(() => Promise.resolve(ok({ data: TENANT })))
+    executeQuery.mockReset()
+    executeQuery.mockResolvedValue({ data: [TENANT_ROW], error: undefined })
     vi.stubGlobal('fetch', fetchMock)
     vi.unstubAllEnvs()
     vi.stubEnv('STUDIO_AUTH_STATE_DIR', dir)
@@ -98,15 +116,18 @@ describe('/api/platform/projects/[ref]/config/realtime', () => {
       })
     })
 
-    it('writes nothing when nothing has been saved from the UI', async () => {
+    it('reads the tenant row and touches Realtime not at all', async () => {
       const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
 
       await handler(req, res)
 
-      expect(fetchMock.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true)
+      expect(executeQuery).toHaveBeenCalledTimes(1)
+      expect(executeQuery.mock.calls[0][0].query).toContain('from _realtime.tenants')
+      expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('answers 502 when Realtime cannot be reached', async () => {
+    it('answers 502 when neither the row nor Realtime can be reached', async () => {
+      executeQuery.mockResolvedValue({ data: undefined, error: new Error('no such schema') })
       fetchMock.mockRejectedValue(new TypeError('fetch failed'))
       const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
 
@@ -117,6 +138,7 @@ describe('/api/platform/projects/[ref]/config/realtime', () => {
     })
 
     it('answers 502, not 500, when Realtime has no such tenant', async () => {
+      executeQuery.mockResolvedValue({ data: [], error: undefined })
       fetchMock.mockImplementation(() => Promise.resolve(ok({ data: null })))
       const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
 

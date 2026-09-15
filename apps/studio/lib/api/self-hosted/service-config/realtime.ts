@@ -2,6 +2,7 @@ import { components } from 'api-types'
 
 import { readJsonState, writeJsonState } from '../auth-config/state'
 import { AUTH_JWT_SECRET } from '../constants'
+import { executeQuery } from '../query'
 import { ServiceConfigValidationError, ServiceUnavailableError } from './errors'
 import { adminFetch } from './http'
 import { signHs256Jwt } from './jwt'
@@ -10,11 +11,14 @@ type RealtimeConfig = components['schemas']['RealtimeConfigResponse_Output']
 type UpdateRealtimeConfigBody = components['schemas']['UpdateRealtimeConfigBody']
 
 /**
- * The Realtime settings, written to Realtime's own admin API and remembered here.
+ * The Realtime settings: read from Realtime's own tenant row, written through its admin API, and
+ * remembered here.
  *
  * Self-hosted there is one tenant, `REALTIME_TENANT_ID`, and `PUT /api/tenants/:tenant_id` writes
  * the columns behind this page. The controller updates the global tenant cache and disconnects or
- * restarts what the change requires, so a save applies without a restart.
+ * restarts what the change requires, so a save applies without a restart. Writes go through the API
+ * for exactly that reason: an `UPDATE` straight against the table would move the row and leave every
+ * running node serving the cached old one.
  *
  * **Studio keeps its own copy, and that is not belt-and-braces.** The self-hosted compose `command`
  * runs `Realtime.Release.seeds` on every container start, and `priv/repo/seeds.exs` *deletes* the
@@ -23,15 +27,20 @@ type UpdateRealtimeConfigBody = components['schemas']['UpdateRealtimeConfigBody'
  * operator saved is gone. So a read compares the tenant against what was saved and re-applies the
  * difference.
  *
- * **Reading back is only half possible.** `TenantView.render("tenant.json")` serialises five of the
- * nine columns this module writes — `max_concurrent_users`, `max_channels_per_client`,
- * `max_events_per_second`, `max_joins_per_second` and `private_only`. It never returns
- * `max_bytes_per_second`, `max_presence_events_per_second`, `max_payload_size_in_kb` or `suspend`,
- * all four of which the changeset casts and two of which the settings form edits. Drift on those is
- * undetectable, so a saved value for one of them is re-applied on every read rather than compared.
- * The `PUT` is idempotent — Ecto produces an empty changeset when nothing moved, and neither the
- * cache update nor the client disconnect fires on one — so re-applying costs one request and
- * disturbs nobody.
+ * **Reads come from the table, because the API cannot answer them in full.**
+ * `TenantView.render("tenant.json")` serialises five of the nine columns this module writes —
+ * `max_concurrent_users`, `max_channels_per_client`, `max_events_per_second`, `max_joins_per_second`
+ * and `private_only`. It never returns `max_bytes_per_second`, `max_presence_events_per_second`,
+ * `max_payload_size_in_kb` or `suspend`, all four of which the changeset casts and two of which the
+ * settings form edits. Reading `_realtime.tenants` sees all nine, so drift is compared exactly per
+ * key and a tenant that already matches is left alone.
+ *
+ * The admin API read stays as the fallback for a stack where that table cannot be reached — a
+ * Realtime on its own database, say. On that path the four columns above come back absent, and
+ * {@link hasDrifted} treats an absent column as drifted, which is what keeps a saved value applied
+ * when it cannot be verified. The `PUT` is idempotent — Ecto produces an empty changeset when
+ * nothing moved, and neither the cache update nor the client disconnect fires on one — so
+ * re-applying costs one request and disturbs nobody.
  *
  * Verified against supabase/realtime v2.76.5: `lib/realtime/api/tenant.ex`, `lib/realtime/api.ex`,
  * `lib/realtime_web/router.ex`, `lib/realtime_web/controllers/tenant_controller.ex`,
@@ -157,7 +166,8 @@ const asBoolean = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined
 
 /**
- * The tenant Realtime holds. `TenantView` wraps it as `{ data: … }`.
+ * The tenant as Realtime's HTTP API reports it, which is the fallback read and the only place a
+ * missing tenant is reported from. `TenantView` wraps it as `{ data: … }`.
  *
  * A 200 that carries no tenant is a {@link ServiceUnavailableError} rather than a 500, the way the
  * pooler's is: `REALTIME_TENANT_ID` naming a tenant Realtime does not have is the operator's own
@@ -173,6 +183,68 @@ async function getTenant(): Promise<Tenant> {
 
   return tenant
 }
+
+/**
+ * A tenant name plain enough to interpolate. `REALTIME_TENANT_ID` reaches the query as text rather
+ * than as a bound parameter, so anything carrying a quote, a backslash, whitespace or a semicolon is
+ * refused outright and the read falls back to the admin API instead of being escaped.
+ */
+const TENANT_ID_PATTERN = /^[a-z0-9-]+$/
+
+/** The nine columns, in one place, so the query cannot drift from the keys it is read into. */
+const APPLIED_COLUMNS = [...NUMERIC_APPLIED_KEYS, ...BOOLEAN_APPLIED_KEYS]
+
+const tenantRowQuery = (tenantId: string): string =>
+  `select ${APPLIED_COLUMNS.join(', ')} from _realtime.tenants where external_id = '${tenantId}'`
+
+/**
+ * The tenant row as Realtime's own database holds it — all nine columns, including the four its HTTP
+ * view will not serialise.
+ *
+ * Read on the read-write connection (`POSTGRES_USER_READ_WRITE`, a superuser) rather than the
+ * read-only one, because `_realtime` is Realtime's schema and the read-only role is not granted on
+ * it. Nothing here writes; the connection is only what can see the table.
+ *
+ * Every failure reads as "the table could not be answered from" and hands over to the admin API:
+ * a schema that is not there because Realtime runs on its own database, a role that cannot see it,
+ * a tenant name too exotic to interpolate, or no row at all. A column that comes back as the wrong
+ * shape — or as `null`, which Realtime allows before `maybe_set_default` fills it — is left out of
+ * the result rather than guessed at, so it reads as unverifiable and gets re-applied.
+ */
+async function readTenantFromDatabase(): Promise<Tenant | undefined> {
+  const tenantId = realtimeTenantId()
+  if (!TENANT_ID_PATTERN.test(tenantId)) return undefined
+
+  let rows: unknown
+  try {
+    const { data, error } = await executeQuery<Record<string, unknown>>({
+      query: tenantRowQuery(tenantId),
+    })
+    if (error) return undefined
+    rows = data
+  } catch {
+    return undefined
+  }
+
+  const row = asRecord(Array.isArray(rows) ? rows[0] : undefined)
+  if (!row) return undefined
+
+  const tenant: Tenant = {}
+  for (const key of NUMERIC_APPLIED_KEYS) {
+    const value = asNumber(row[key])
+    if (value !== undefined) tenant[key] = value
+  }
+  for (const key of BOOLEAN_APPLIED_KEYS) {
+    const value = asBoolean(row[key])
+    if (value !== undefined) tenant[key] = value
+  }
+
+  return tenant
+}
+
+/** The tenant as it actually stands: from its own row where that can be read, else from the API. */
+const getLiveTenant = async (): Promise<Tenant> =>
+  (await readTenantFromDatabase()) ?? (await getTenant())
 
 /**
  * Writes the named columns, and only those.
@@ -215,16 +287,18 @@ function appliedFromState(state: Record<string, unknown>): Record<string, number
 /**
  * Whether the tenant has to be written back before its settings can be reported.
  *
- * A saved setting the view *does* report is compared. A saved setting it does not report is treated
- * as drifted, because there is nothing to compare it with and the seeds reset it on every restart —
- * see the note at the top of this file.
+ * A saved setting the live read reports is compared exactly, so a tenant that already matches is
+ * left alone. A saved setting the live read cannot report at all is treated as drifted, because
+ * there is nothing to compare it with and the seeds reset it on every restart. Reading the tenant
+ * row reports all nine, so that second branch is the admin-API fallback's — see the note at the top
+ * of this file.
  */
 const hasDrifted = (applied: Record<string, number | boolean>, live: Tenant): boolean =>
   Object.entries(applied).some(([key, value]) => !(key in live) || live[key] !== value)
 
 export async function getRealtimeConfig(): Promise<RealtimeConfig> {
   const state = await readJsonState(REALTIME_STATE_FILE_NAME)
-  const live = await getTenant()
+  const live = await getLiveTenant()
   const applied = appliedFromState(state)
 
   const reconciled = hasDrifted(applied, live)

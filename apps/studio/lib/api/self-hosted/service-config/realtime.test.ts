@@ -11,11 +11,49 @@ import { getRealtimeConfig, REALTIME_STATE_FILE_NAME, updateRealtimeConfig } fro
 
 const fetchMock = vi.fn()
 
+const { executeQuery } = vi.hoisted(() => ({ executeQuery: vi.fn() }))
+vi.mock('../query', () => ({ executeQuery }))
+
+/**
+ * The tenant row as `_realtime.tenants` holds it — all nine columns, which is what the read path
+ * uses. `null` is what Realtime leaves a limit at until `maybe_set_default` fills it.
+ */
+const tenantRow = (overrides: Record<string, unknown> = {}) => ({
+  max_concurrent_users: 200,
+  max_events_per_second: 100,
+  max_bytes_per_second: 100_000,
+  max_channels_per_client: 100,
+  max_joins_per_second: 100,
+  max_presence_events_per_second: 1000,
+  max_payload_size_in_kb: 3000,
+  private_only: false,
+  suspend: false,
+  ...overrides,
+})
+
+/** The tenant row the next read sees. */
+const databaseHolds = (overrides: Record<string, unknown> = {}) => {
+  const row = tenantRow(overrides)
+  executeQuery.mockResolvedValue({ data: [row], error: undefined })
+  return row
+}
+
+/** The SQL of the read, which is the only query this module sends. */
+const readSql = (): string => executeQuery.mock.calls[0][0].query
+
+/** The tenant row cannot be read, so the module falls back to Realtime's HTTP API. */
+const databaseUnavailable = () => {
+  executeQuery.mockResolvedValue({
+    data: undefined,
+    error: new Error('schema "_realtime" does not exist'),
+  })
+}
+
 /**
  * The tenant as Realtime's `TenantView.render("tenant.json")` serialises it at v2.76.5 — which is
  * five of the nine settings this module writes. `max_bytes_per_second`,
  * `max_presence_events_per_second`, `max_payload_size_in_kb` and `suspend` are columns the
- * controller happily writes and the view never hands back.
+ * controller happily writes and the view never hands back. Only the fallback read sees this shape.
  */
 const tenant = (overrides: Record<string, unknown> = {}) => ({
   id: '4b2a1f6e-1f1a-4a1e-9f4d-0b0a4c6d5e7f',
@@ -67,6 +105,8 @@ describe('api/self-hosted/service-config/realtime', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'studio-realtime-state-'))
     fetchMock.mockReset()
+    executeQuery.mockReset()
+    databaseHolds()
     realtimeHolds()
     vi.stubGlobal('fetch', fetchMock)
     vi.stubEnv('STUDIO_AUTH_STATE_DIR', dir)
@@ -84,8 +124,8 @@ describe('api/self-hosted/service-config/realtime', () => {
     JSON.parse(readFileSync(join(dir, REALTIME_STATE_FILE_NAME), 'utf8'))
 
   describe('getRealtimeConfig', () => {
-    it('answers with the live tenant when nothing has been saved from the UI', async () => {
-      realtimeHolds({
+    it('answers with the tenant row when nothing has been saved from the UI', async () => {
+      databaseHolds({
         max_concurrent_users: 500,
         max_events_per_second: 250,
         max_channels_per_client: 42,
@@ -104,14 +144,39 @@ describe('api/self-hosted/service-config/realtime', () => {
       })
     })
 
-    it('writes nothing when nothing has been saved from the UI', async () => {
-      await getRealtimeConfig()
+    it('answers with the four columns the HTTP view would never have reported', async () => {
+      databaseHolds({
+        max_bytes_per_second: 250_000,
+        max_presence_events_per_second: 750,
+        max_payload_size_in_kb: 1500,
+        suspend: true,
+      })
 
-      expect(callsTo('PUT')).toHaveLength(0)
-      expect(callsTo('GET')).toHaveLength(1)
+      const config = await getRealtimeConfig()
+
+      expect(config).toMatchObject({
+        max_bytes_per_second: 250_000,
+        max_presence_events_per_second: 750,
+        max_payload_size_in_kb: 1500,
+        suspend: true,
+      })
     })
 
-    it('fills the four settings the tenant view never reports with Realtime’s own defaults', async () => {
+    it('touches Realtime not at all when nothing has been saved from the UI', async () => {
+      await getRealtimeConfig()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(executeQuery).toHaveBeenCalledTimes(1)
+    })
+
+    it('falls back to Realtime’s own defaults for a column the row leaves null', async () => {
+      databaseHolds({
+        max_bytes_per_second: null,
+        max_presence_events_per_second: null,
+        max_payload_size_in_kb: null,
+        suspend: null,
+      })
+
       const config = await getRealtimeConfig()
 
       // From `Realtime.Api.Tenant`'s schema defaults and `config/runtime.exs` at v2.76.5 — not from
@@ -151,7 +216,7 @@ describe('api/self-hosted/service-config/realtime', () => {
     })
 
     it('re-applies the saved settings when the live tenant has drifted away from them', async () => {
-      realtimeHolds({ max_concurrent_users: 200, max_events_per_second: 100 })
+      databaseHolds({ max_concurrent_users: 200, max_events_per_second: 100 })
       await writeJsonState(
         REALTIME_STATE_FILE_NAME,
         { max_concurrent_users: 1000, max_events_per_second: 500 },
@@ -191,8 +256,8 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(putBody()).toEqual({ max_concurrent_users: 1000 })
     })
 
-    it('leaves the live tenant alone when every saved setting it reports already matches', async () => {
-      realtimeHolds({ max_concurrent_users: 1000 })
+    it('leaves the live tenant alone when every saved setting already matches it', async () => {
+      databaseHolds({ max_concurrent_users: 1000 })
       await writeJsonState(
         REALTIME_STATE_FILE_NAME,
         { max_concurrent_users: 1000, connection_pool: 9 },
@@ -204,9 +269,21 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(callsTo('PUT')).toHaveLength(0)
     })
 
-    it('re-applies a saved setting the tenant view cannot report, because drift is invisible there', async () => {
-      // `max_payload_size_in_kb` is not in `TenantView`'s output, so "live equals saved" can never
-      // be established for it — and a Realtime restart re-seeds the tenant back to 3000.
+    it('writes nothing on a read where every one of the nine already matches', async () => {
+      // The whole point of reading the row: `suspend` and the payload limit are in it, so a tenant
+      // that is already right is left alone instead of being written back on every page load.
+      const row = databaseHolds()
+      await writeJsonState(REALTIME_STATE_FILE_NAME, { ...row }, dir)
+
+      await getRealtimeConfig()
+
+      expect(callsTo('PUT')).toHaveLength(0)
+    })
+
+    it('re-applies a saved payload limit the tenant was re-seeded away from', async () => {
+      // `max_payload_size_in_kb` is not in `TenantView`'s output, so only the row can show that a
+      // restart put it back to 3000.
+      databaseHolds({ max_payload_size_in_kb: 3000 })
       await writeJsonState(REALTIME_STATE_FILE_NAME, { max_payload_size_in_kb: 500 }, dir)
 
       const config = await getRealtimeConfig()
@@ -216,8 +293,18 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(config).toMatchObject({ max_payload_size_in_kb: 500 })
     })
 
+    it('re-applies a saved suspend flag the tenant was re-seeded away from', async () => {
+      databaseHolds({ suspend: false })
+      await writeJsonState(REALTIME_STATE_FILE_NAME, { suspend: true }, dir)
+
+      const config = await getRealtimeConfig()
+
+      expect(putBody()).toEqual({ suspend: true })
+      expect(config).toMatchObject({ suspend: true })
+    })
+
     it('keeps the live value for a setting that was never saved, even while reconciling', async () => {
-      realtimeHolds({ max_concurrent_users: 200, max_joins_per_second: 333 })
+      databaseHolds({ max_concurrent_users: 200, max_joins_per_second: 333 })
       await writeJsonState(REALTIME_STATE_FILE_NAME, { max_concurrent_users: 1000 }, dir)
 
       const config = await getRealtimeConfig()
@@ -238,6 +325,68 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(callsTo('PUT')).toHaveLength(0)
       expect(config).toMatchObject({ max_concurrent_users: 200, private_only: false })
     })
+  })
+
+  describe('reading the tenant row', () => {
+    it('asks for the nine columns of the one tenant, by name', async () => {
+      await getRealtimeConfig()
+
+      expect(readSql()).toBe(
+        'select max_concurrent_users, max_events_per_second, max_bytes_per_second, ' +
+          'max_channels_per_client, max_joins_per_second, max_presence_events_per_second, ' +
+          "max_payload_size_in_kb, private_only, suspend from _realtime.tenants where external_id = 'realtime-dev'"
+      )
+    })
+
+    it('follows REALTIME_TENANT_ID into the query', async () => {
+      vi.stubEnv('REALTIME_TENANT_ID', 'my-tenant-2')
+
+      await getRealtimeConfig()
+
+      expect(readSql()).toContain("where external_id = 'my-tenant-2'")
+    })
+
+    it.each(["evil'; drop table _realtime.tenants; --", 'my tenant', 'Tenant', 'a_b'])(
+      'refuses to interpolate %j, and reads over the API instead',
+      async (tenantId) => {
+        vi.stubEnv('REALTIME_TENANT_ID', tenantId)
+
+        await getRealtimeConfig()
+
+        expect(executeQuery).not.toHaveBeenCalled()
+        expect(callsTo('GET')).toHaveLength(1)
+      }
+    )
+  })
+
+  describe('the admin API fallback', () => {
+    beforeEach(databaseUnavailable)
+
+    it('reads the tenant over HTTP when its row cannot be read', async () => {
+      const config = await getRealtimeConfig()
+
+      const [url] = fetchMock.mock.calls[0]
+      expect(url).toBe('http://realtime-dev:4000/api/tenants/realtime-dev')
+      expect(config).toMatchObject({ max_concurrent_users: 200, private_only: false })
+    })
+
+    it('falls back when the row is simply not there', async () => {
+      executeQuery.mockResolvedValue({ data: [], error: undefined })
+
+      await getRealtimeConfig()
+
+      expect(callsTo('GET')).toHaveLength(1)
+    })
+
+    it('re-applies a saved column the HTTP view cannot report, drift being invisible there', async () => {
+      await writeJsonState(REALTIME_STATE_FILE_NAME, { max_payload_size_in_kb: 500 }, dir)
+
+      const config = await getRealtimeConfig()
+
+      expect(callsTo('PUT')).toHaveLength(1)
+      expect(putBody()).toEqual({ max_payload_size_in_kb: 500 })
+      expect(config).toMatchObject({ max_payload_size_in_kb: 500 })
+    })
 
     it('says so rather than answering with an empty configuration when the tenant is missing', async () => {
       fetchMock.mockImplementation(() => Promise.resolve(ok({ data: null })))
@@ -246,7 +395,7 @@ describe('api/self-hosted/service-config/realtime', () => {
       await expect(getRealtimeConfig()).rejects.toThrow('realtime-dev')
     })
 
-    it('rethrows when Realtime cannot be reached', async () => {
+    it('rethrows when Realtime cannot be reached either', async () => {
       fetchMock.mockRejectedValue(new TypeError('fetch failed'))
 
       await expect(getRealtimeConfig()).rejects.toBeInstanceOf(ServiceUnavailableError)
@@ -254,8 +403,8 @@ describe('api/self-hosted/service-config/realtime', () => {
   })
 
   describe('addressing and authentication', () => {
-    it('reads the tenant Realtime serves on the compose network', async () => {
-      await getRealtimeConfig()
+    it('writes to the tenant Realtime serves on the compose network', async () => {
+      await updateRealtimeConfig({ max_concurrent_users: 1000 })
 
       const [url] = fetchMock.mock.calls[0]
       expect(url).toBe('http://realtime-dev:4000/api/tenants/realtime-dev')
@@ -265,14 +414,14 @@ describe('api/self-hosted/service-config/realtime', () => {
       vi.stubEnv('REALTIME_URL', 'http://rt.internal:4001')
       vi.stubEnv('REALTIME_TENANT_ID', 'my tenant')
 
-      await getRealtimeConfig()
+      await updateRealtimeConfig({ max_concurrent_users: 1000 })
 
       const [url] = fetchMock.mock.calls[0]
       expect(url).toBe('http://rt.internal:4001/api/tenants/my%20tenant')
     })
 
     it('signs the bearer token with the secret Realtime holds as API_JWT_SECRET', async () => {
-      await getRealtimeConfig()
+      await updateRealtimeConfig({ max_concurrent_users: 1000 })
 
       const [, init] = fetchMock.mock.calls[0]
       const token = String(init.headers.Authorization).replace('Bearer ', '')

@@ -548,13 +548,17 @@ export const PostgrestConfig = () => {
                           <FormItemLayout
                             layout="flex-row-reverse"
                             label="Pool size"
-                            description="Number of maximum connections to keep open in the Data API server's database pool. Unset to let it be configured automatically based on compute size."
+                            description={
+                              IS_PLATFORM
+                                ? "Number of maximum connections to keep open in the Data API server's database pool. Unset to let it be configured automatically based on compute size."
+                                : "Number of maximum connections to keep open in the Data API server's database pool. Set by the PGRST_DB_POOL variable of the PostgREST container, which has to be restarted for a change to it to take effect."
+                            }
                           >
                             <FormControl>
                               <InputGroup>
                                 <FormInputGroupInput
                                   size="small"
-                                  disabled={!canUpdatePostgrestConfig}
+                                  disabled={!canUpdatePostgrestConfig || !IS_PLATFORM}
                                   {...field}
                                   type="number"
                                   placeholder="Configured automatically"

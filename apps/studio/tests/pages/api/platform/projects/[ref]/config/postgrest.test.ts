@@ -56,8 +56,7 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       withRoleSettings(
         'pgrst.db_schemas=public,api',
         'pgrst.db_extra_search_path=public,extensions',
-        'pgrst.db_max_rows=500',
-        'pgrst.db_pool=25'
+        'pgrst.db_max_rows=500'
       )
 
       const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
@@ -67,7 +66,7 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       expect(JSON.parse(res._getData())).toEqual({
         db_anon_role: 'anon',
         db_extra_search_path: 'public,extensions',
-        db_pool: 25,
+        db_pool: null,
         db_schema: 'public,api',
         jwt_secret: expect.any(String),
         max_rows: 500,
@@ -75,7 +74,7 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       })
     })
 
-    it('has db_pool in the answer even when the role carries no setting for it', async () => {
+    it('has db_pool in the answer, which the client widens the GET type for', async () => {
       const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
       await handler(req, res)
 
@@ -106,8 +105,7 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       withRoleSettings(
         'pgrst.db_schemas="public, graphql_public"',
         'pgrst.db_extra_search_path="public, extensions"',
-        'pgrst.db_max_rows=500',
-        'pgrst.db_pool=25'
+        'pgrst.db_max_rows=500'
       )
 
       await handler(req, res)
@@ -115,18 +113,18 @@ describe('/api/platform/projects/[ref]/config/postgrest', () => {
       expect(res._getStatusCode()).toBe(200)
       expect(JSON.parse(res._getData())).toEqual({
         db_extra_search_path: 'public, extensions',
-        db_pool: 25,
+        db_pool: null,
         db_pool_acquisition_timeout: null,
         db_schema: 'public, graphql_public',
         max_rows: 500,
       })
 
+      // The pool size the body carried is accepted and dropped: it is not an in-database setting.
       expect(executeQuery.mock.calls[0][0].query).toBe(
         [
           "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public';",
           "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
           "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
-          "ALTER ROLE authenticator SET pgrst.db_pool = '25';",
           `NOTIFY pgrst, 'reload config';`,
         ].join('\n')
       )

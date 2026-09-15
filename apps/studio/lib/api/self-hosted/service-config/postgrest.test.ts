@@ -46,16 +46,22 @@ describe('api/self-hosted/service-config/postgrest', () => {
       withRoleSettings(
         'pgrst.db_schemas=public,graphql_public,api',
         'pgrst.db_extra_search_path=public,extensions',
-        'pgrst.db_max_rows=500',
-        'pgrst.db_pool=25'
+        'pgrst.db_max_rows=500'
       )
 
       await expect(getPostgrestConfig()).resolves.toMatchObject({
         db_schema: 'public,graphql_public,api',
         db_extra_search_path: 'public,extensions',
         max_rows: 500,
-        db_pool: 25,
       })
+    })
+
+    it('answers null for the pool even when the role carries a setting for it', async () => {
+      // PostgREST does not read `pgrst.db_pool` from the database, so a value found there would
+      // describe nothing. One could only be left over from a hand-written ALTER ROLE.
+      withRoleSettings('pgrst.db_pool=25')
+
+      await expect(getPostgrestConfig()).resolves.toMatchObject({ db_pool: null })
     })
 
     it('strips the quotes Postgres puts around a value holding a comma', async () => {
@@ -107,9 +113,9 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
     it('falls back to the env when a role setting is not an integer', async () => {
       vi.stubEnv('PGRST_DB_MAX_ROWS', '750')
-      withRoleSettings('pgrst.db_max_rows=lots', 'pgrst.db_pool=big')
+      withRoleSettings('pgrst.db_max_rows=lots')
 
-      await expect(getPostgrestConfig()).resolves.toMatchObject({ max_rows: 750, db_pool: null })
+      await expect(getPostgrestConfig()).resolves.toMatchObject({ max_rows: 750 })
     })
 
     it('answers with the JWT secret the stack was started with', async () => {
@@ -128,7 +134,7 @@ describe('api/self-hosted/service-config/postgrest', () => {
   })
 
   describe('updatePostgrestConfig', () => {
-    it('writes every field it was given, then tells PostgREST to reload', async () => {
+    it('writes every field the database can hold, then tells PostgREST to reload', async () => {
       await updatePostgrestConfig({
         db_schema: 'public,graphql_public',
         db_extra_search_path: 'public,extensions',
@@ -142,8 +148,6 @@ describe('api/self-hosted/service-config/postgrest', () => {
           "ALTER ROLE authenticator SET pgrst.db_schemas = 'public, graphql_public';",
           "ALTER ROLE authenticator SET pgrst.db_extra_search_path = 'public, extensions';",
           "ALTER ROLE authenticator SET pgrst.db_max_rows = '500';",
-          "ALTER ROLE authenticator SET pgrst.db_pool = '25';",
-          "ALTER ROLE authenticator SET pgrst.db_pool_acquisition_timeout = '10';",
           `NOTIFY pgrst, 'reload config';`,
         ].join('\n')
       )
@@ -164,12 +168,25 @@ describe('api/self-hosted/service-config/postgrest', () => {
       )
     })
 
-    it('resets the pool size back to the env value when it is cleared', async () => {
-      await updatePostgrestConfig({ db_pool: null })
+    it.each([
+      ['a pool size', { db_pool: 25 }],
+      ['a cleared pool size', { db_pool: null }],
+      ['an acquisition timeout', { db_pool_acquisition_timeout: 10 }],
+      ['a pool size out of the range the form allows', { db_pool: 99999 }],
+    ] as const)('never touches pgrst.db_pool, given %s', async (_name, body) => {
+      // Neither is an in-database setting, so a value written here would be a number PostgREST
+      // never reads and the next GET would hand it back as though the pool had changed.
+      await updatePostgrestConfig(body)
 
-      expect(writtenSql()).toBe(
-        `ALTER ROLE authenticator RESET pgrst.db_pool;\nNOTIFY pgrst, 'reload config';`
-      )
+      expect(writtenSql()).toBe(`NOTIFY pgrst, 'reload config';`)
+      expect(writtenSql()).not.toContain('pgrst.db_pool')
+      expect(writtenSql()).not.toContain('RESET')
+    })
+
+    it('answers null for both pool fields, whatever the body asked for', async () => {
+      await expect(
+        updatePostgrestConfig({ max_rows: 500, db_pool: 25, db_pool_acquisition_timeout: 10 })
+      ).resolves.toMatchObject({ db_pool: null, db_pool_acquisition_timeout: null })
     })
 
     it('normalises the spacing of a schema list', async () => {
@@ -190,23 +207,15 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
     it('answers with the config as it now stands', async () => {
       executeQuery.mockResolvedValueOnce({ data: [], error: undefined })
-      withRoleSettings('pgrst.db_schemas=public', 'pgrst.db_max_rows=500', 'pgrst.db_pool=25')
+      withRoleSettings('pgrst.db_schemas=public', 'pgrst.db_max_rows=500')
 
-      await expect(
-        updatePostgrestConfig({ db_schema: 'public', max_rows: 500, db_pool: 25 })
-      ).resolves.toEqual({
+      await expect(updatePostgrestConfig({ db_schema: 'public', max_rows: 500 })).resolves.toEqual({
         db_schema: 'public',
         db_extra_search_path: 'public',
         max_rows: 500,
-        db_pool: 25,
+        db_pool: null,
         db_pool_acquisition_timeout: null,
       })
-    })
-
-    it('echoes the acquisition timeout it was given, which it cannot read back', async () => {
-      await expect(
-        updatePostgrestConfig({ db_pool_acquisition_timeout: 30 })
-      ).resolves.toMatchObject({ db_pool_acquisition_timeout: 30 })
     })
 
     it('surfaces a database error', async () => {
@@ -229,11 +238,6 @@ describe('api/self-hosted/service-config/postgrest', () => {
         ['max rows is above a million', { max_rows: 1_000_001 }],
         ['max rows is fractional', { max_rows: 1.5 }],
         ['max rows is a string', { max_rows: '500' }],
-        ['the pool size is zero', { db_pool: 0 }],
-        ['the pool size is above a thousand', { db_pool: 1001 }],
-        ['the acquisition timeout is zero', { db_pool_acquisition_timeout: 0 }],
-        ['the acquisition timeout is above ten minutes', { db_pool_acquisition_timeout: 601 }],
-        ['the acquisition timeout is cleared', { db_pool_acquisition_timeout: null }],
       ] as const
 
       it.each(rejects)('%s', async (_name, body) => {

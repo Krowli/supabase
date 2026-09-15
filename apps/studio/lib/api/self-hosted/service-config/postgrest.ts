@@ -12,10 +12,9 @@ type UpdatePostgrestConfigResponse = components['schemas']['UpdatePostgrestConfi
 export type PostgrestConfig = GetPostgrestConfigResponse & { db_pool: number | null }
 
 /**
- * `UpdatePostgrestConfigBody`, plus the `db_pool: null` that asks for the env value back. The
- * generated type spells the field `number | undefined`, which leaves no way to say "cleared" —
- * undefined already means "not part of this PATCH". Every body the generated type accepts is
- * accepted here too.
+ * `UpdatePostgrestConfigBody`, widened to the `db_pool: null` a client sends for a cleared field.
+ * Both pool fields are accepted and then ignored — see the note below — so the type exists to let a
+ * body carrying them through without a cast, not because either one is written.
  */
 export type UpdatePostgrestConfigInput = Omit<UpdatePostgrestConfigBody, 'db_pool'> & {
   db_pool?: number | null
@@ -29,13 +28,14 @@ export type UpdatePostgrestConfigInput = Omit<UpdatePostgrestConfigBody, 'db_poo
  * `setconfig` is a `text[]` of `name=value`, one array per (role, database) pair, so a role
  * configured both globally and per database yields more than one row.
  *
- * Three of the four settings this module writes are in-database settings and reload without a
- * restart: `db-schemas`, `db-extra-search-path` and `db-max-rows`. **`db-pool` and
+ * The three settings this module writes are in-database settings and reload without a restart:
+ * `db-schemas`, `db-extra-search-path` and `db-max-rows`. **`db-pool` and
  * `db-pool-acquisition-timeout` are neither** — the PostgREST 14 reference gives both "In-Database:
- * n/a" and "Reloadable: N", so a `pgrst.db_pool` on the role is a GUC nothing reads, and the pool
- * size can only be changed by the container env plus a restart. They are written and read here
- * because the platform's contract carries them; the value the UI shows after a save is the value
- * Studio stored, not the pool PostgREST is running on.
+ * n/a" and "Reloadable: N", so a `pgrst.db_pool` on the role would be a GUC nothing reads, and the
+ * pool size can only be changed by the container's `PGRST_DB_POOL` plus a restart. Rather than
+ * store a number that would read back as if it had taken effect, this module never writes either
+ * one and answers `null` for both. The UI keeps the field read-only self-hosted and says where the
+ * real value lives.
  * See https://docs.postgrest.org/en/v14/references/configuration.html#db-pool.
  */
 const ROLE_SETTINGS_QUERY = `select unnest(s.setconfig) as setting
@@ -104,7 +104,9 @@ export async function getPostgrestConfig(): Promise<PostgrestConfig> {
       settings.get('pgrst.db_extra_search_path') ??
       process.env.PGRST_DB_EXTRA_SEARCH_PATH ??
       'public',
-    db_pool: parseInteger(settings.get('pgrst.db_pool')),
+    // Not an in-database setting, so there is nothing here to read it from. `null` is what the
+    // platform answers when the pool is not pinned, and what the UI renders as "set elsewhere".
+    db_pool: null,
     db_schema: settings.get('pgrst.db_schemas') ?? DEFAULT_EXPOSED_SCHEMAS,
     jwt_secret: process.env.AUTH_JWT_SECRET ?? DEFAULT_AUTH_JWT_SECRET,
     max_rows:
@@ -161,18 +163,28 @@ function validateInteger(value: unknown, field: string, min: number, max: number
 const setSetting = (name: string, value: string) =>
   `ALTER ROLE authenticator SET pgrst.${name} = '${value}';`
 
+/** The two fields of the platform's body that the database cannot hold. See the note above. */
+const IGNORED_KEYS = ['db_pool', 'db_pool_acquisition_timeout'] as const
+
 /**
  * Writes the settings PostgREST reads from the database and tells it to pick them up.
  *
  * Only the fields the body carries are written — a PATCH names what changed, and resetting the rest
- * to their env values would undo settings the operator never touched. `db_pool: null` is the one
- * way to ask for the env value back, and it is a RESET rather than a write.
+ * to their env values would undo settings the operator never touched.
+ *
+ * The two pool fields are dropped before anything else happens. Neither is an in-database setting,
+ * so writing one would store a number PostgREST never reads and then hand it back on the next GET
+ * as though the pool had changed. A body carrying them is not an error — the platform's contract
+ * has both, and a client saving the whole form sends what it was given — it just does not move
+ * them.
  */
 export async function updatePostgrestConfig(
   body: UpdatePostgrestConfigInput
 ): Promise<UpdatePostgrestConfigResponse> {
   // The body is parsed JSON from a request, so it is read as unknown rather than trusted as typed.
-  const fields = body as Record<string, unknown>
+  const fields = { ...body } as Record<string, unknown>
+  for (const key of IGNORED_KEYS) delete fields[key]
+
   const statements: string[] = []
 
   if (fields.db_schema !== undefined) {
@@ -192,25 +204,6 @@ export async function updatePostgrestConfig(
     statements.push(setSetting('db_max_rows', String(maxRows)))
   }
 
-  if (fields.db_pool === null) {
-    statements.push('ALTER ROLE authenticator RESET pgrst.db_pool;')
-  } else if (fields.db_pool !== undefined) {
-    const dbPool = validateInteger(fields.db_pool, 'db_pool', 1, 1000)
-    statements.push(setSetting('db_pool', String(dbPool)))
-  }
-
-  // Not a role setting Studio reads back, so the answer can only echo what this request set.
-  let dbPoolAcquisitionTimeout: number | null = null
-  if (fields.db_pool_acquisition_timeout !== undefined) {
-    dbPoolAcquisitionTimeout = validateInteger(
-      fields.db_pool_acquisition_timeout,
-      'db_pool_acquisition_timeout',
-      1,
-      600
-    )
-    statements.push(setSetting('db_pool_acquisition_timeout', String(dbPoolAcquisitionTimeout)))
-  }
-
   // One statement short of useless on its own, but a reload with nothing changed costs nothing and
   // keeps an empty PATCH on the same path as every other one.
   statements.push(`NOTIFY pgrst, 'reload config';`)
@@ -223,7 +216,7 @@ export async function updatePostgrestConfig(
   return {
     db_extra_search_path: config.db_extra_search_path,
     db_pool: config.db_pool,
-    db_pool_acquisition_timeout: dbPoolAcquisitionTimeout,
+    db_pool_acquisition_timeout: null,
     db_schema: config.db_schema,
     max_rows: config.max_rows,
   }

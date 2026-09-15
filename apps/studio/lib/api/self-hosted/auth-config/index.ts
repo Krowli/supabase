@@ -75,6 +75,9 @@ const RESOLVED_KEYS: readonly string[] = [
   ...(NULL_BY_DEFAULT as readonly string[]),
 ].filter((key) => MANAGED_KEYS.has(key))
 
+/** The six keys whose cleared value is `null` rather than the empty value of a type. */
+const NULLABLE_KEYS: ReadonlySet<string> = new Set<string>(NULL_BY_DEFAULT)
+
 /** What Go's `strconv.ParseBool` accepts, which is what GoTrue read the mirrored value with. */
 const TRUE_VALUES: ReadonlySet<string> = new Set(['1', 't', 'true'])
 const FALSE_VALUES: ReadonlySet<string> = new Set(['0', 'f', 'false'])
@@ -104,6 +107,24 @@ function parseMirrored(key: string, raw: string | undefined): unknown {
   return raw
 }
 
+/**
+ * What a cleared key answers with: the empty value of the type the platform declares for it.
+ *
+ * A `null` in the state is a tombstone — the UI asked for the value to go away — and not an
+ * absence, so resolution stops here rather than falling through to the mirrored env or the default.
+ * Falling through is what made "Disable SMTP" put the compose file's own `GOTRUE_SMTP_HOST`
+ * straight back. An enum key is a string in GoTrue and clears to `''` like any other.
+ */
+function clearedValue(key: string): unknown {
+  if (NULLABLE_KEYS.has(key)) return null
+
+  const declared = PLATFORM_CONFIG_TYPES[key]
+  if (declared === 'number') return 0
+  if (declared === 'boolean') return false
+
+  return ''
+}
+
 /** `true` for every template the UI has given a body or a subject of its own. */
 function customContents(state: AuthConfigState, key: (id: TemplateId) => string) {
   const contents: Record<string, boolean> = {}
@@ -122,7 +143,8 @@ function customContents(state: AuthConfigState, key: (id: TemplateId) => string)
  *
  * GoTrue's config directory cannot be read back for this — keys there are sticky and the running
  * config mixes container env with every file in the directory — so Studio answers from its own
- * state file, the mirrored env, and the recorded defaults, in that order.
+ * state file, the mirrored env, and the recorded defaults, in that order. A `null` in the state
+ * ends that order early: it is a key the UI cleared, and `clearedValue` answers for it.
  */
 export async function getAuthConfig(): Promise<GoTrueConfigResponse> {
   const state = await readState()
@@ -130,7 +152,7 @@ export async function getAuthConfig(): Promise<GoTrueConfigResponse> {
 
   for (const key of RESOLVED_KEYS) {
     if (key in state) {
-      config[key] = state[key]
+      config[key] = state[key] === null ? clearedValue(key) : state[key]
       continue
     }
 
@@ -159,9 +181,24 @@ export async function getAuthConfig(): Promise<GoTrueConfigResponse> {
   return config as GoTrueConfigResponse
 }
 
-/** Renders the current config into the file GoTrue watches. */
-async function writeGoTrueEnv(config: GoTrueConfigResponse): Promise<void> {
-  const env = toEnv(config, {
+/**
+ * Renders the current config into the file GoTrue watches.
+ *
+ * `config` is what a GET answers, and a GET answers only for `RESOLVED_KEYS`. Five managed keys are
+ * not in it — `EXTERNAL_WORKOS_ENABLED` and the four `EXTERNAL_X_*` — because `UpdateGoTrueConfigBody`
+ * declares them and `GoTrueConfigResponse` does not. They have real GoTrue fields, so the state's
+ * own copy is folded in here; without it the UI saves a WorkOS or X provider that is stored, read
+ * back as configured, and never turned on in GoTrue. Keys the GET already resolved keep the value
+ * it resolved — that is where a tombstone became `''` rather than staying `null`.
+ */
+async function writeGoTrueEnv(config: GoTrueConfigResponse, state: AuthConfigState): Promise<void> {
+  const merged: Record<string, unknown> = { ...config }
+
+  for (const [key, value] of Object.entries(state)) {
+    if (MANAGED_KEYS.has(key) && !(key in merged)) merged[key] = value
+  }
+
+  const env = toEnv(merged, {
     templateBaseUrl: `${process.env.STUDIO_INTERNAL_URL ?? 'http://supabase-studio:3000'}/api/platform/auth/default/templates`,
     apiExternalUrl: process.env.SUPABASE_PUBLIC_URL ?? '',
   })
@@ -172,9 +209,14 @@ async function writeGoTrueEnv(config: GoTrueConfigResponse): Promise<void> {
 /**
  * Applies a PATCH: validates it, records it, and rewrites `99_studio.env` from the result.
  *
- * `null` for a key removes it from the state, so the mirrored env or the default answers for it
- * again. An empty `SMTP_PASS` is dropped rather than stored — the UI sends the field back empty
- * because it never received the password it is editing, and storing that would clear it.
+ * `null` for a key clears it. The `null` is stored rather than deleted, because a deleted key falls
+ * back to the mirrored env, and for the twenty keys the compose file mirrors that means the value
+ * the UI just cleared answers again — "Disable SMTP" sending `SMTP_HOST: null` and getting the old
+ * host straight back. A stored `null` resolves to the empty value of the key's type instead, which
+ * `toEnv` writes as `KEY=""` for a string-typed key, and GoTrue's sticky value is actually gone.
+ *
+ * An empty `SMTP_PASS` is dropped rather than stored — the UI sends the field back empty because it
+ * never received the password it is editing, and storing that would clear it.
  */
 export async function updateAuthConfig(
   patch: Record<string, unknown>
@@ -190,14 +232,11 @@ export async function updateAuthConfig(
   if (!result.ok) throw new AuthConfigValidationError(result.message)
 
   const state = await readState()
-  for (const [key, value] of Object.entries(incoming)) {
-    if (value === null) delete state[key]
-    else state[key] = value
-  }
+  for (const [key, value] of Object.entries(incoming)) state[key] = value
   await writeState(state)
 
   const config = await getAuthConfig()
-  await writeGoTrueEnv(config)
+  await writeGoTrueEnv(config, state)
 
   return config
 }
@@ -206,12 +245,14 @@ export async function updateAuthConfig(
 export async function resetTemplate(id: TemplateId): Promise<GoTrueConfigResponse> {
   const state = await readState()
 
+  // Deleted rather than tombstoned: a reset puts the template back the way it was before the UI
+  // touched it, which for the five mirrored subjects means the compose file's own value again.
   delete state[`MAILER_TEMPLATES_${id}_CONTENT`]
   delete state[`MAILER_SUBJECTS_${id}`]
   await writeState(state)
 
   const config = await getAuthConfig()
-  await writeGoTrueEnv(config)
+  await writeGoTrueEnv(config, state)
 
   return config
 }

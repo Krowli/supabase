@@ -183,15 +183,95 @@ describe('api/self-hosted/auth-config/index', () => {
       await expect(updateAuthConfig({ JWT_EXP: 'an hour' })).rejects.toThrow(/JWT_EXP/)
     })
 
-    it('drops a key from the state when the patch sends null, so the env answers again', async () => {
-      vi.stubEnv('GOTRUE_SITE_URL', 'https://mirrored.test')
-      await updateAuthConfig({ SITE_URL: 'https://saved.test' })
+    it('clears a mirrored key for good when the patch sends null', async () => {
+      // The compose file sets `GOTRUE_SMTP_HOST`, so deleting the state key would hand the old host
+      // straight back and "Disable SMTP" would do nothing at all. The null is stored as a tombstone
+      // instead, and the empty value it resolves to clears GoTrue's own sticky one.
+      vi.stubEnv('GOTRUE_SMTP_HOST', 'smtp.old')
+      await updateAuthConfig({ SMTP_HOST: 'smtp.saved' })
 
-      const config = await updateAuthConfig({ SITE_URL: null })
+      const config = await updateAuthConfig({ SMTP_HOST: null })
 
-      expect(config.SITE_URL).toBe('https://mirrored.test')
-      expect(readStateFile()).toEqual({})
-      expect(readEnvFile()).toContain('GOTRUE_SITE_URL="https://mirrored.test"')
+      expect(config.SMTP_HOST).toBe('')
+      expect(readStateFile()).toEqual({ SMTP_HOST: null })
+      expect(readEnvFile()).toContain('GOTRUE_SMTP_HOST=""')
+    })
+
+    it('clears a key to the empty value of its own type', async () => {
+      const config = await updateAuthConfig({
+        JWT_EXP: null,
+        MAILER_AUTOCONFIRM: null,
+        SITE_URL: null,
+        WEBAUTHN_RP_ID: null,
+      })
+
+      expect(config.JWT_EXP).toBe(0)
+      expect(config.MAILER_AUTOCONFIRM).toBe(false)
+      expect(config.SITE_URL).toBe('')
+      // The six keys the response type declares nullable clear to null, their own empty value.
+      expect(config.WEBAUTHN_RP_ID).toBeNull()
+    })
+
+    it('does not let a recorded default answer for a key that was cleared', async () => {
+      // A cleared key that fell through to `DEFAULTS` would report the 3600 the operator just
+      // removed, and the env file would keep writing it.
+      expect((await getAuthConfig()).JWT_EXP).toBe(DEFAULTS.JWT_EXP)
+
+      expect((await updateAuthConfig({ JWT_EXP: null })).JWT_EXP).toBe(0)
+    })
+
+    it('writes the keys only the update body declares, which a GET never answers for', async () => {
+      // `EXTERNAL_WORKOS_ENABLED` and the four `EXTERNAL_X_*` are in `UpdateGoTrueConfigBody` and
+      // not in `GoTrueConfigResponse`, so the resolved config has no entry for them. Rendering from
+      // the resolved config alone stored the provider and never turned it on.
+      await updateAuthConfig({
+        EXTERNAL_X_ENABLED: true,
+        EXTERNAL_X_CLIENT_ID: 'id',
+        EXTERNAL_WORKOS_ENABLED: true,
+      })
+
+      const envFile = readEnvFile()
+
+      expect(envFile).toContain('GOTRUE_EXTERNAL_X_ENABLED="true"')
+      expect(envFile).toContain('GOTRUE_EXTERNAL_X_CLIENT_ID="id"')
+      expect(envFile).toContain('GOTRUE_EXTERNAL_WORKOS_ENABLED="true"')
+    })
+
+    it('renders every managed key the state holds a value for', async () => {
+      // The general form of the same check: nothing stored may be left out of the file.
+      const stored: Record<string, unknown> = {
+        EXTERNAL_WORKOS_ENABLED: true,
+        EXTERNAL_WORKOS_URL: 'https://workos.example.test',
+        EXTERNAL_X_CLIENT_ID: 'x-client',
+        EXTERNAL_X_EMAIL_OPTIONAL: true,
+        EXTERNAL_X_ENABLED: true,
+        EXTERNAL_X_SECRET: 'x-secret',
+      }
+      seedState(stored)
+
+      await updateAuthConfig({ SITE_URL: 'https://app.test' })
+      const envFile = readEnvFile()
+
+      for (const key of Object.keys(stored)) expect(envFile).toContain(`GOTRUE_${key}=`)
+    })
+
+    it('builds each provider callback from SUPABASE_PUBLIC_URL', async () => {
+      vi.stubEnv('SUPABASE_PUBLIC_URL', 'https://api.example.test')
+
+      await updateAuthConfig({ EXTERNAL_GITHUB_ENABLED: true })
+
+      expect(readEnvFile()).toContain(
+        'GOTRUE_EXTERNAL_GITHUB_REDIRECT_URI="https://api.example.test/auth/v1/callback"'
+      )
+    })
+
+    it('writes no provider callback when SUPABASE_PUBLIC_URL is unset', async () => {
+      vi.stubEnv('SUPABASE_PUBLIC_URL', '')
+
+      await updateAuthConfig({ EXTERNAL_GITHUB_ENABLED: true })
+
+      expect(readEnvFile()).toContain('GOTRUE_EXTERNAL_GITHUB_ENABLED="true"')
+      expect(readEnvFile()).not.toContain('GOTRUE_EXTERNAL_GITHUB_REDIRECT_URI')
     })
 
     it('ignores an empty SMTP_PASS, which is what the UI sends for a password it never saw', async () => {

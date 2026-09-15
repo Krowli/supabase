@@ -41,6 +41,9 @@ const databaseHolds = (overrides: Record<string, unknown> = {}) => {
 /** The SQL of the read, which is the only query this module sends. */
 const readSql = (): string => executeQuery.mock.calls[0][0].query
 
+/** The values bound to that query, which is where the tenant id travels. */
+const readParameters = (): unknown[] => executeQuery.mock.calls[0][0].parameters
+
 /** The tenant row cannot be read, so the module falls back to Realtime's HTTP API. */
 const databaseUnavailable = () => {
   executeQuery.mockResolvedValue({
@@ -334,29 +337,66 @@ describe('api/self-hosted/service-config/realtime', () => {
       expect(readSql()).toBe(
         'select max_concurrent_users, max_events_per_second, max_bytes_per_second, ' +
           'max_channels_per_client, max_joins_per_second, max_presence_events_per_second, ' +
-          "max_payload_size_in_kb, private_only, suspend from _realtime.tenants where external_id = 'realtime-dev'"
+          'max_payload_size_in_kb, private_only, suspend from _realtime.tenants where external_id = $1'
       )
+      expect(readParameters()).toEqual(['realtime-dev'])
     })
 
-    it('follows REALTIME_TENANT_ID into the query', async () => {
+    it('follows REALTIME_TENANT_ID into the bound parameter', async () => {
       vi.stubEnv('REALTIME_TENANT_ID', 'my-tenant-2')
 
       await getRealtimeConfig()
 
-      expect(readSql()).toContain("where external_id = 'my-tenant-2'")
+      expect(readParameters()).toEqual(['my-tenant-2'])
     })
 
-    it.each(["evil'; drop table _realtime.tenants; --", 'my tenant', 'Tenant', 'a_b'])(
-      'refuses to interpolate %j, and reads over the API instead',
+    it.each(['dev_tenant', 'Tenant', 'my tenant', "o'brien"])(
+      'reads the row for %j, which a name may legally be',
       async (tenantId) => {
         vi.stubEnv('REALTIME_TENANT_ID', tenantId)
 
         await getRealtimeConfig()
 
-        expect(executeQuery).not.toHaveBeenCalled()
-        expect(callsTo('GET')).toHaveLength(1)
+        expect(readParameters()).toEqual([tenantId])
+        expect(fetchMock).not.toHaveBeenCalled()
       }
     )
+
+    it('sends a name full of SQL as a value, never as part of the statement', async () => {
+      const injection = "evil'; drop table _realtime.tenants; --"
+      vi.stubEnv('REALTIME_TENANT_ID', injection)
+
+      await getRealtimeConfig()
+
+      expect(readSql()).not.toContain('drop table')
+      expect(readSql()).toContain('external_id = $1')
+      expect(readParameters()).toEqual([injection])
+    })
+
+    it('refuses an id no name could be, and reads over the API instead', async () => {
+      vi.stubEnv('REALTIME_TENANT_ID', 'x'.repeat(256))
+
+      await getRealtimeConfig()
+
+      expect(executeQuery).not.toHaveBeenCalled()
+      expect(callsTo('GET')).toHaveLength(1)
+    })
+
+    it('reads the default tenant when REALTIME_TENANT_ID is set to nothing', async () => {
+      vi.stubEnv('REALTIME_TENANT_ID', '')
+
+      await getRealtimeConfig()
+
+      expect(readParameters()).toEqual(['realtime-dev'])
+    })
+
+    it('reads the row for the longest id it will accept', async () => {
+      vi.stubEnv('REALTIME_TENANT_ID', 'x'.repeat(255))
+
+      await getRealtimeConfig()
+
+      expect(readParameters()).toEqual(['x'.repeat(255)])
+    })
   })
 
   describe('the admin API fallback', () => {

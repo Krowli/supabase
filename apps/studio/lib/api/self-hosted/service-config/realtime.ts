@@ -185,17 +185,20 @@ async function getTenant(): Promise<Tenant> {
 }
 
 /**
- * A tenant name plain enough to interpolate. `REALTIME_TENANT_ID` reaches the query as text rather
- * than as a bound parameter, so anything carrying a quote, a backslash, whitespace or a semicolon is
- * refused outright and the read falls back to the admin API instead of being escaped.
+ * A tenant name worth sending. The id travels as a bound parameter, so this is not about escaping —
+ * it is a sanity bound, catching a `REALTIME_TENANT_ID` that was set to nothing at all or to
+ * something far too long to be a name, before either becomes a puzzling empty read. 255 is generous
+ * for a value Realtime keeps in one column; every real tenant name is a fraction of it.
  */
-const TENANT_ID_PATTERN = /^[a-z0-9-]+$/
+const MAX_TENANT_ID_LENGTH = 255
+
+const isUsableTenantId = (tenantId: string): boolean =>
+  tenantId.length > 0 && tenantId.length <= MAX_TENANT_ID_LENGTH
 
 /** The nine columns, in one place, so the query cannot drift from the keys it is read into. */
 const APPLIED_COLUMNS = [...NUMERIC_APPLIED_KEYS, ...BOOLEAN_APPLIED_KEYS]
 
-const tenantRowQuery = (tenantId: string): string =>
-  `select ${APPLIED_COLUMNS.join(', ')} from _realtime.tenants where external_id = '${tenantId}'`
+const TENANT_ROW_QUERY = `select ${APPLIED_COLUMNS.join(', ')} from _realtime.tenants where external_id = $1`
 
 /**
  * The tenant row as Realtime's own database holds it — all nine columns, including the four its HTTP
@@ -205,20 +208,24 @@ const tenantRowQuery = (tenantId: string): string =>
  * read-only one, because `_realtime` is Realtime's schema and the read-only role is not granted on
  * it. Nothing here writes; the connection is only what can see the table.
  *
+ * The tenant id is sent as a bound parameter rather than as text in the query, so a name carrying a
+ * quote or a semicolon is a name, not a fragment of SQL, and `dev_tenant`-style ids work unchanged.
+ *
  * Every failure reads as "the table could not be answered from" and hands over to the admin API:
  * a schema that is not there because Realtime runs on its own database, a role that cannot see it,
- * a tenant name too exotic to interpolate, or no row at all. A column that comes back as the wrong
- * shape — or as `null`, which Realtime allows before `maybe_set_default` fills it — is left out of
- * the result rather than guessed at, so it reads as unverifiable and gets re-applied.
+ * a tenant id that is empty or absurdly long, or no row at all. A column that comes back as the
+ * wrong shape — or as `null`, which Realtime allows before `maybe_set_default` fills it — is left
+ * out of the result rather than guessed at, so it reads as unverifiable and gets re-applied.
  */
 async function readTenantFromDatabase(): Promise<Tenant | undefined> {
   const tenantId = realtimeTenantId()
-  if (!TENANT_ID_PATTERN.test(tenantId)) return undefined
+  if (!isUsableTenantId(tenantId)) return undefined
 
   let rows: unknown
   try {
     const { data, error } = await executeQuery<Record<string, unknown>>({
-      query: tenantRowQuery(tenantId),
+      query: TENANT_ROW_QUERY,
+      parameters: [tenantId],
     })
     if (error) return undefined
     rows = data

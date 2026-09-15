@@ -341,13 +341,13 @@ referenced either, and the pooling pages read the two routes above instead.
 
 **The gate edits** — fifteen upstream files, most with a comment on the spot saying why:
 
-| Page               | Files                                                                                                                                                                                                                                                                                                                                       | Change                                                                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Data API           | `components/interfaces/Settings/API/PostgrestConfig.tsx`, `pages/project/[ref]/settings/api.tsx`                                                                                                                                                                                                                                            | The save is gated on the permission alone rather than on `IS_PLATFORM`, and both environments now redirect to the Data API integration page                                  |
-| Connection pooling | `data/database/pgbouncer-config-query.ts`, `data/database/supavisor-configuration-query.ts`, `pages/project/[ref]/database/settings.tsx`, `components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.tsx`                                                                                                                 | Both queries run self-hosted, the database settings page renders the pooling card, and the pool-size copy stops quoting a compute size the self-hosted project does not have |
-| Realtime           | `data/realtime/realtime-config-query.ts`, `components/layouts/RealtimeLayout/RealtimeMenu.utils.ts`                                                                                                                                                                                                                                         | The query runs self-hosted and the Settings entry is always in the menu                                                                                                      |
-| Storage and S3     | `data/config/project-storage-config-query.ts`, `data/storage/s3-access-key-query.ts`, `components/layouts/StorageLayout/StorageBucketsLayout.tsx`, `components/interfaces/Storage/StorageMenuV2.tsx`, `components/interfaces/Storage/StorageSettings/StorageSettings.tsx`, `components/interfaces/Storage/StorageSettings/S3Connection.tsx` | Both queries run self-hosted, the Settings tab and the S3 group are unconditional, and both pages carry an admonition saying a restart is what applies a save                |
-| All five           | `pages/api/platform/organizations/index.ts`                                                                                                                                                                                                                                                                                                 | The organisation stub reports `usage_billing_enabled: true`. Nobody is billed self-hosted, and a missing flag reads as "spend cap on" and disables every usage-based input   |
+| Page               | Files                                                                                                                                                                                                                                                                                                                                       | Change                                                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Data API           | `components/interfaces/Settings/API/PostgrestConfig.tsx`, `pages/project/[ref]/settings/api.tsx`                                                                                                                                                                                                                                            | The save is gated on the permission alone rather than on `IS_PLATFORM`, and both environments now redirect to the Data API integration page                                                            |
+| Connection pooling | `data/database/pgbouncer-config-query.ts`, `data/database/supavisor-configuration-query.ts`, `pages/project/[ref]/database/settings.tsx`, `components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.tsx`                                                                                                                 | Both queries run self-hosted, the database settings page renders the pooling card, and both field descriptions stop quoting defaults belonging to a compute size the self-hosted project does not have |
+| Realtime           | `data/realtime/realtime-config-query.ts`, `components/layouts/RealtimeLayout/RealtimeMenu.utils.ts`                                                                                                                                                                                                                                         | The query runs self-hosted and the Settings entry is always in the menu                                                                                                                                |
+| Storage and S3     | `data/config/project-storage-config-query.ts`, `data/storage/s3-access-key-query.ts`, `components/layouts/StorageLayout/StorageBucketsLayout.tsx`, `components/interfaces/Storage/StorageMenuV2.tsx`, `components/interfaces/Storage/StorageSettings/StorageSettings.tsx`, `components/interfaces/Storage/StorageSettings/S3Connection.tsx` | Both queries run self-hosted, the Settings tab and the S3 group are unconditional, and both pages carry an admonition saying a restart is what applies a save                                          |
+| All five           | `pages/api/platform/organizations/index.ts`                                                                                                                                                                                                                                                                                                 | The organisation stub reports `usage_billing_enabled: true`. Nobody is billed self-hosted, and a missing flag reads as "spend cap on" and disables every usage-based input                             |
 
 **Also modified:** `apps/studio/turbo.jsonc` (eleven new names),
 `apps/studio/routeTree.gen.ts` (six routes added, one removed),
@@ -471,7 +471,10 @@ Seven things about that block:
   container are not read by storage-api — they are what Studio answers the first `GET` with, before
   anything has been saved, so that the page opens on the truth. The `524288000` above is 500 MB;
   upstream's compose ships a 50 MB limit and spells it `FILE_SIZE_LIMIT` on the storage service
-  (`docker/docker-compose.yml:373`). It is the number that has to agree, not the name.
+  (`docker/docker-compose.yml:373`). It is the number that has to agree, not the name — a save
+  renders all three spellings of the limit into `storage.env` (`FILE_SIZE_LIMIT`,
+  `UPLOAD_FILE_SIZE_LIMIT` and `UPLOAD_FILE_SIZE_LIMIT_STANDARD`), so it lands whichever one the
+  storage service reads.
 - **`./volumes/studio-config` is created by Docker on the first start**, because that is what a
   short-syntax bind mount does when the host path is missing. It is created root-owned; Studio's
   container runs as root and writes `storage.env` into it at mode 0644. Storage only reads it, which
@@ -538,14 +541,32 @@ itself is the check.
 **Storage.** A save writes the file. The restart is what applies it.
 
 ```bash
-docker exec <studio-container> cat /etc/studio-config/storage.env
-docker exec <storage-container> env | grep UPLOAD_FILE_SIZE_LIMIT
+docker exec <storage-container> cat /etc/studio-config/storage.env
+docker exec <storage-container> sh -c "tr '\0' '\n' < /proc/1/environ | grep UPLOAD_FILE_SIZE_LIMIT"
 ```
 
-Before the restart those two disagree; after a Restart of `supabase-storage` in Coolify they agree.
-If the second prints nothing at all after a restart, the `command:` lost its `set -a` and every save
-is a silent no-op. The same check with `S3_PROTOCOL_ACCESS_KEY_ID` covers the S3 page; an S3 client
-signing with the key the page shows can list buckets once the restart is through.
+Both lines run against the storage container, and the second one reads `/proc/1/environ` rather than
+running `env`. That is the whole point of the check: `docker exec … env` prints the environment
+Docker hands a _new_ process, which is the compose `environment:` and nothing else. The sourced file
+is read by the shell in `command:`, so it only ever exists in the environment of the server it
+`exec`s — PID 1. An `env` that agrees with the file proves only that the compose values happened to
+match.
+
+So the first line is the saved file as storage sees it, and the second is what the running server was
+actually started with. Before the restart they disagree; after a Restart of `supabase-storage` in
+Coolify they agree, and that is the pass. Two ways to fail it:
+
+- **The first line errors, or shows a file older than the last save.** The bind mount did not reach
+  storage: the `volumes:` entry is missing from `supabase-storage`, or it names a different host path
+  than the one on `supabase-studio`. Saves are landing where the container cannot see them.
+- **The second line prints the compose value while the file holds the saved one** — or prints
+  nothing, on a stack whose storage service only sets `FILE_SIZE_LIMIT`. The `command:` lost its
+  `set -a`, the assignments stayed shell-local, and the server started on the compose environment.
+  This is the worst failure these two pages have: the page goes on reporting the saved value and
+  nothing anywhere says the service never received it.
+
+The same check with `S3_PROTOCOL_ACCESS_KEY_ID` covers the S3 page; an S3 client signing with the key
+the page shows can list buckets once the restart is through.
 
 ### Known limitations
 
@@ -578,6 +599,23 @@ signing with the key the page shows can list buckets once the restart is through
   PostgREST would read. The field is disabled with the placeholder `Set by PGRST_DB_POOL`, a body
   carrying either key is accepted and moves neither, and a `GET` answers `null`. The citation is at
   the top of `service-config/postgrest.ts`.
+- **The pooler port is not published on this stack.** Nothing in the Coolify compose file gives
+  `supabase-supavisor` a `ports:` entry, so 6543 listens only inside the compose network. The
+  connection strings the pooling page and the Connect sheet print
+  (`…@<public host>:6543/postgres`) name the right tenant and the right port and still do not
+  connect from outside: another container on that network reaches them, your laptop does not. Read
+  them as informational unless you publish the port yourself:
+
+  <!-- prettier-ignore -->
+  ```yaml
+    supabase-supavisor:
+      ports:                    # optional — exposes the transaction pooler publicly
+        - '${POOLER_PROXY_PORT_TRANSACTION:-6543}:6543'
+  ```
+
+  Publishing it puts Postgres authentication on the public internet, so pair it with a firewall rule
+  that limits 6543 to the addresses that need it.
+
 - **A pooling save drops every pooled client session.** Supavisor purges its caches and terminates
   the tenant's pools on a successful write, which is also why the new pool size applies without a
   restart. Applications reconnect; a transaction in flight does not.
@@ -616,6 +654,11 @@ signing with the key the page shows can list buckets once the restart is through
   written atomically, but the read-modify-write around them is not locked — the same limitation
   stage 1 records for `auth-config.json`, and now also reachable by a Storage settings save racing
   an S3 key revoke.
+- **The five pages are un-hidden under the Supabase CLI as well, where none of them work.** Point
+  `supabase start` at this image and the pages appear, but that stack spells its services
+  differently and mounts no config directory, so the admin URLs name hosts it does not have and
+  pooling and Realtime answer 502 while a Storage save writes a file nothing reads. The fork is
+  built for the Coolify compose stack described above.
 
 ## Updating from upstream
 

@@ -39,7 +39,7 @@ describe('/api/platform/auth/[ref]/config/hooks', () => {
   })
 
   describe('Method handling', () => {
-    it.each(['GET', 'POST', 'DELETE'])('should return 405 for %s', async (method) => {
+    it.each(['GET', 'POST', 'DELETE'] as const)('should return 405 for %s', async (method) => {
       const { req, res } = createMocks({ method, query: { ref: 'default' } })
 
       await handler(req, res)

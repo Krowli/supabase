@@ -44,7 +44,7 @@ describe('/api/platform/auth/[ref]/config', () => {
   })
 
   describe('Method handling', () => {
-    it.each(['POST', 'DELETE'])('should return 405 for %s', async (method) => {
+    it.each(['POST', 'DELETE'] as const)('should return 405 for %s', async (method) => {
       const { req, res } = createMocks({ method, query: { ref: 'default' } })
 
       await handler(req, res)
@@ -120,8 +120,8 @@ describe('/api/platform/auth/[ref]/config', () => {
       expect(readFileSync(envFilePath(), 'utf8')).toBe(envBefore)
     })
 
-    it('refuses a body that is not an object', async () => {
-      const { req, res } = createMocks({ method: 'PATCH', query: { ref: 'default' }, body: 'nope' })
+    it('refuses a body that is not an object of settings', async () => {
+      const { req, res } = createMocks({ method: 'PATCH', query: { ref: 'default' }, body: [] })
 
       await handler(req, res)
 

@@ -78,6 +78,20 @@ describe('api/self-hosted/generate-types', () => {
       expect(mockFetchGet.mock.calls[0][0]).toContain('included_schemas=public,newly_exposed')
     })
 
+    it('should not carry the spaces a save stores into the pg-meta URL', async () => {
+      // From the first save on the role setting reads back `public, newly_exposed`: the spaced form
+      // the settings page shows. Interpolated as it stands, pg-meta is asked for a schema called
+      // " newly_exposed" and answers with the types for `public` alone.
+      withRoleSettings('pgrst.db_schemas="public, newly_exposed"')
+      mockFetchGet.mockResolvedValue({ types: 'export type User = {}' })
+
+      await generateTypescriptTypes({ headers: {} })
+
+      const callUrl = mockFetchGet.mock.calls[0][0]
+      expect(callUrl).toContain('included_schemas=public,newly_exposed')
+      expect(callUrl).not.toContain(' ')
+    })
+
     it('should fall back to the container env when the database cannot be reached', async () => {
       executeQuery.mockResolvedValue({ data: undefined, error: new Error('connection refused') })
       mockFetchGet.mockResolvedValue({ types: 'export type User = {}' })

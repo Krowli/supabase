@@ -361,6 +361,41 @@ describe('api/self-hosted/service-config/postgrest', () => {
 
       await expect(getExposedSchemas()).resolves.toBe(DEFAULT_EXPOSED_SCHEMAS)
     })
+
+    it('drops the spaces a save stores, and leaves the config field carrying them', async () => {
+      // The shape the setting has from the first save on: `validateSchemaList` joins with ", " and
+      // Postgres quotes a value holding a comma. The callers put the list into a URL query and
+      // into schema lookups, where " newly_exposed" is a name nothing matches.
+      withDatabaseSettings('pgrst.db_schemas="public, newly_exposed"')
+
+      await expect(getExposedSchemas()).resolves.toBe('public,newly_exposed')
+      // The settings page renders the spaced form, so the config keeps it.
+      await expect(getPostgrestConfig()).resolves.toMatchObject({
+        db_schema: 'public, newly_exposed',
+      })
+    })
+
+  })
+
+  describe('getExposedSchemas when PGRST_DB_SCHEMAS is itself spaced', () => {
+    afterEach(() => {
+      vi.doUnmock('../constants')
+      vi.resetModules()
+    })
+
+    it('drops the spaces from the env fallback too', async () => {
+      // `PGRST_DB_SCHEMAS` is written by hand in a compose file; nothing stops it being spaced.
+      vi.resetModules()
+      vi.doMock('../query', () => ({ executeQuery }))
+      vi.doMock('../constants', async () => ({
+        ...(await vi.importActual<typeof import('../constants')>('../constants')),
+        DEFAULT_EXPOSED_SCHEMAS: 'public, graphql_public',
+      }))
+      const { getExposedSchemas: reloaded } = await import('./postgrest')
+      executeQuery.mockResolvedValue({ data: undefined, error: new Error('connection refused') })
+
+      await expect(reloaded()).resolves.toBe('public,graphql_public')
+    })
   })
 
   describe('when POSTGRES_DB is not a name a setting can be scoped to', () => {

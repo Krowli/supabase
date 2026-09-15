@@ -141,11 +141,27 @@ export async function getPostgrestConfig(): Promise<PostgrestConfig> {
   }
 }
 
+/** The names of a comma-separated list, with nothing between them but the comma. */
+function joinSchemaNames(list: string): string {
+  return list
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '')
+    .join(',')
+}
+
 /**
  * The schemas the Data API exposes, for the callers that only need that one field: the MCP
  * advisors, the type generator and the lint runner. They used to read `PGRST_DB_SCHEMAS` from the
  * container env at import time, which stopped being the answer the moment the settings page could
  * change it.
+ *
+ * The list comes back without the spaces the stored setting carries. A save writes
+ * `pgrst.db_schemas` as `public, graphql_public` — the spaced form {@link validateSchemaList} joins,
+ * which is what the settings page renders and what `getPostgrestConfig().db_schema` keeps — but
+ * every caller here puts the list somewhere a space is not a separator: the type generator
+ * interpolates it into `included_schemas=` on the pg-meta URL, and the advisors take it as a list of
+ * names. ` graphql_public` with the space still on it is a schema none of them match.
  *
  * A database that cannot be reached falls back to the env rather than failing the caller. Every one
  * of them is doing something else — generating types, running lints — and the env value is what
@@ -154,9 +170,9 @@ export async function getPostgrestConfig(): Promise<PostgrestConfig> {
  */
 export async function getExposedSchemas(): Promise<string> {
   try {
-    return (await getPostgrestConfig()).db_schema
+    return joinSchemaNames((await getPostgrestConfig()).db_schema)
   } catch {
-    return DEFAULT_EXPOSED_SCHEMAS
+    return joinSchemaNames(DEFAULT_EXPOSED_SCHEMAS)
   }
 }
 

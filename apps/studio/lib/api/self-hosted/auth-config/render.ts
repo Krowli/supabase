@@ -16,7 +16,15 @@ export function getConfigDir(): string {
 /** Distinguishes concurrent writes, so two saves in flight cannot share one temp file. */
 let tmpSequence = 0
 
-/** Backslash first — escaping it after the others would double-escape what they inserted. */
+/**
+ * Backslash first — escaping it after the others would double-escape what they inserted.
+ *
+ * One case this gets wrong, knowingly: a backslash typed directly before a `$` is doubled here, and
+ * godotenv unescapes the pair back to `\$` (`unescapeCharsRegex` skips a `$`,
+ * `internal/forks/godotenv/parser.go:254`), which `expandVariables` at line 257 then reads as an
+ * escaped dollar and strips the backslash from. Nothing the UI writes carries that pair, and that
+ * fork substitutes no variable values at all, so the loss is a cosmetic one.
+ */
 function escapeValue(value: string): string {
   return value
     .replaceAll('\\', '\\\\')

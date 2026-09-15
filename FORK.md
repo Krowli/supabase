@@ -94,7 +94,7 @@ Two rules of GoTrue's own that the renderer is built around:
 | `GOTRUE_CONFIG_DIR`                 | `/etc/gotrue`                 | Where `99_studio.env` is written                                                                   |
 | `STUDIO_AUTH_STATE_DIR`             | `/var/lib/studio`             | Where `auth-config.json` is kept                                                                   |
 | `STUDIO_INTERNAL_URL`               | `http://supabase-studio:3000` | The base of the template URLs GoTrue fetches                                                       |
-| `SUPABASE_PUBLIC_URL`               | `''`                          | Builds each provider's `GOTRUE_EXTERNAL_<PROVIDER>_REDIRECT_URI`; already set by the stock compose |
+| `SUPABASE_PUBLIC_URL`               | `''`                          | Builds each provider's `GOTRUE_EXTERNAL_<PROVIDER>_REDIRECT_URI`. Unset, no callback is written and whatever the auth container already has stands. Already set by the stock compose |
 | the 20 names in `MIRRORED_ENV_KEYS` | —                             | What a `GET` answers with before anything has been saved                                           |
 
 ## Coolify compose changes
@@ -104,48 +104,49 @@ Studio's writes to GoTrue.
 
 <!-- prettier-ignore -->
 ```yaml
-volumes:                      # top level, next to the existing named volumes
+volumes:                        # top level, next to the existing named volumes
   gotrue-config:
   studio-auth-state:
 
-supabase-auth:
-  command: ["auth", "--config-dir", "/etc/gotrue"]
-  volumes:
-    - gotrue-config:/etc/gotrue:ro
-  environment:                # add to the existing list
-    - GOTRUE_MAILER_TEMPLATE_RELOADING_ENABLED=true
-    - GOTRUE_MAILER_TEMPLATE_MAX_AGE=1m
+services:                       # the compose file's existing services block
+  supabase-auth:
+    command: ["auth", "--config-dir", "/etc/gotrue"]
+    volumes:
+      - gotrue-config:/etc/gotrue:ro
+    environment:                # add to the existing list
+      - GOTRUE_MAILER_TEMPLATE_RELOADING_ENABLED=true
+      - GOTRUE_MAILER_TEMPLATE_MAX_AGE=1m
 
-supabase-studio:
-  image: ghcr.io/krowli/studio:<tag>
-  volumes:                    # add to the existing list
-    - gotrue-config:/etc/gotrue
-    - studio-auth-state:/var/lib/studio
-  environment:                # add to the existing list
-    - STUDIO_INTERNAL_URL=http://supabase-studio:3000
-    - GOTRUE_CONFIG_DIR=/etc/gotrue
-    - STUDIO_AUTH_STATE_DIR=/var/lib/studio
-    - GOTRUE_SITE_URL=${GOTRUE_SITE_URL:-${SERVICE_URL_SUPABASEKONG}}
-    - GOTRUE_URI_ALLOW_LIST=${ADDITIONAL_REDIRECT_URLS}
-    - GOTRUE_DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
-    - GOTRUE_JWT_EXP=${JWT_EXPIRY:-3600}
-    - GOTRUE_EXTERNAL_EMAIL_ENABLED=${ENABLE_EMAIL_SIGNUP:-true}
-    - GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED=${ENABLE_ANONYMOUS_USERS:-false}
-    - GOTRUE_MAILER_AUTOCONFIRM=${ENABLE_EMAIL_AUTOCONFIRM:-false}
-    - GOTRUE_SMTP_ADMIN_EMAIL=${SMTP_ADMIN_EMAIL}
-    - GOTRUE_SMTP_HOST=${SMTP_HOST}
-    - GOTRUE_SMTP_PORT=${SMTP_PORT:-587}
-    - GOTRUE_SMTP_USER=${SMTP_USER}
-    - GOTRUE_SMTP_PASS=${SMTP_PASS}
-    - GOTRUE_SMTP_SENDER_NAME=${SMTP_SENDER_NAME}
-    - GOTRUE_EXTERNAL_PHONE_ENABLED=${ENABLE_PHONE_SIGNUP:-true}
-    - GOTRUE_SMS_AUTOCONFIRM=${ENABLE_PHONE_AUTOCONFIRM:-true}
-    - GOTRUE_MAILER_SUBJECTS_CONFIRMATION=${MAILER_SUBJECTS_CONFIRMATION}
-    - GOTRUE_MAILER_SUBJECTS_RECOVERY=${MAILER_SUBJECTS_RECOVERY}
-    - GOTRUE_MAILER_SUBJECTS_MAGIC_LINK=${MAILER_SUBJECTS_MAGIC_LINK}
-    - GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE=${MAILER_SUBJECTS_EMAIL_CHANGE}
-    - GOTRUE_MAILER_SUBJECTS_INVITE=${MAILER_SUBJECTS_INVITE}
-    - ENABLED_FEATURES_AUTHENTICATION_THIRD_PARTY_AUTH=false
+  supabase-studio:
+    image: ghcr.io/krowli/studio:<tag>
+    volumes:                    # add to the existing list
+      - gotrue-config:/etc/gotrue
+      - studio-auth-state:/var/lib/studio
+    environment:                # add to the existing list
+      - STUDIO_INTERNAL_URL=http://supabase-studio:3000
+      - GOTRUE_CONFIG_DIR=/etc/gotrue
+      - STUDIO_AUTH_STATE_DIR=/var/lib/studio
+      - GOTRUE_SITE_URL=${GOTRUE_SITE_URL:-${SERVICE_URL_SUPABASEKONG}}
+      - GOTRUE_URI_ALLOW_LIST=${ADDITIONAL_REDIRECT_URLS}
+      - GOTRUE_DISABLE_SIGNUP=${DISABLE_SIGNUP:-false}
+      - GOTRUE_JWT_EXP=${JWT_EXPIRY:-3600}
+      - GOTRUE_EXTERNAL_EMAIL_ENABLED=${ENABLE_EMAIL_SIGNUP:-true}
+      - GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED=${ENABLE_ANONYMOUS_USERS:-false}
+      - GOTRUE_MAILER_AUTOCONFIRM=${ENABLE_EMAIL_AUTOCONFIRM:-false}
+      - GOTRUE_SMTP_ADMIN_EMAIL=${SMTP_ADMIN_EMAIL}
+      - GOTRUE_SMTP_HOST=${SMTP_HOST}
+      - GOTRUE_SMTP_PORT=${SMTP_PORT:-587}
+      - GOTRUE_SMTP_USER=${SMTP_USER}
+      - GOTRUE_SMTP_PASS=${SMTP_PASS}
+      - GOTRUE_SMTP_SENDER_NAME=${SMTP_SENDER_NAME}
+      - GOTRUE_EXTERNAL_PHONE_ENABLED=${ENABLE_PHONE_SIGNUP:-true}
+      - GOTRUE_SMS_AUTOCONFIRM=${ENABLE_PHONE_AUTOCONFIRM:-true}
+      - GOTRUE_MAILER_SUBJECTS_CONFIRMATION=${MAILER_SUBJECTS_CONFIRMATION}
+      - GOTRUE_MAILER_SUBJECTS_RECOVERY=${MAILER_SUBJECTS_RECOVERY}
+      - GOTRUE_MAILER_SUBJECTS_MAGIC_LINK=${MAILER_SUBJECTS_MAGIC_LINK}
+      - GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE=${MAILER_SUBJECTS_EMAIL_CHANGE}
+      - GOTRUE_MAILER_SUBJECTS_INVITE=${MAILER_SUBJECTS_INVITE}
+      - ENABLED_FEATURES_AUTHENTICATION_THIRD_PARTY_AUTH=false
 ```
 
 The block is written list-style (`- KEY=value`), which is the form the Coolify Supabase template
@@ -232,6 +233,35 @@ Studio's state and replaced by a rename, so the hand-added line is gone and the 
 - **The UI wins over Coolify.** A value saved in the dashboard is written to `99_studio.env`,
   which overrides the same variable set in the compose file. Changing it in Coolify afterwards
   will look like it did nothing.
+- **Clearing a value in the dashboard clears it for good, not back to Coolify.** Emptying a field
+  the compose file also sets — turning SMTP off, say, while `GOTRUE_SMTP_HOST` is in the compose
+  environment — records the clearing rather than forgetting the setting, and `99_studio.env`
+  carries `GOTRUE_SMTP_HOST=""`. The compose value does not answer again. To bring it back, either
+  set the value in the dashboard, or delete `auth-config.json` from the `studio-auth-state`
+  volume, which discards every dashboard change at once.
+- **OAuth callbacks need `SUPABASE_PUBLIC_URL` on the Studio container.** Without it Studio writes
+  no `GOTRUE_EXTERNAL_<PROVIDER>_REDIRECT_URI` at all, and GoTrue refuses the sign-in with
+  `missing redirect URI` unless the auth container's own environment supplies one. The stock
+  Supabase compose already sets `SUPABASE_PUBLIC_URL`; a stripped-down compose may not.
+- **SAML cannot be turned on from the dashboard.** GoTrue demands `GOTRUE_SAML_PRIVATE_KEY` the
+  moment SAML is enabled (`internal/conf/saml.go:45`), and that is not a key in the config
+  contract, so nothing the dashboard sends can supply one. Saving the toggle is refused with a
+  message saying as much; writing it anyway would fail the reload and then crash-loop
+  `supabase-auth` on its next restart. To run SAML, put the private key in the auth container's
+  environment and enable it there.
+- **Email template URLs set in Coolify stop applying after the first save.** The
+  `GOTRUE_MAILER_TEMPLATES_*` variables are deliberately not mirrored — GoTrue holds a template as
+  a URL and the dashboard holds it as a body, so there is nothing there to read one out of — and
+  every template the dashboard has not customised is written as `=""`, which is how GoTrue is told
+  to use its built-in copy. A template URL set in the compose file is therefore overridden by the
+  first save from the dashboard. Manage templates from the dashboard instead.
+- **The `MFA_ALLOW_LOW_AAL` toggle is stored but never applied.** The platform types it a boolean
+  and GoTrue's `GOTRUE_SESSIONS_ALLOW_LOW_AAL` is a duration, so there is no honest translation
+  from the one to the other. The switch round-trips in the UI and reaches no GoTrue field.
+- **`SMS_TEST_OTP` and `SMS_TEST_OTP_VALID_UNTIL` cannot be cleared through the file.** GoTrue
+  reads them as a map and a timestamp, and an empty value for either fails the whole reload, so
+  clearing one drops the key instead of writing it — and a dropped key leaves the last value in
+  force. Clearing a test OTP takes a Restart of `supabase-auth`.
 - **Secrets sit in plain text in two Docker volumes.** SMTP passwords, OAuth client secrets and
   hook secrets are in `auth-config.json` (mode 0600) and in `99_studio.env` (mode 0644). A `GET`
   of the auth config also returns `SMTP_PASS` in clear text to any Studio user; the UI never

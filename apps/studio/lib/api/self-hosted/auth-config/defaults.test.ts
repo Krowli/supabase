@@ -163,9 +163,11 @@ describe('api/self-hosted/auth-config/defaults', () => {
       for (const key of hooks) expect(DEFAULTS).toHaveProperty(key, false)
     })
 
-    it('reports the session limits as 0, which is how GoTrue reads "disabled"', () => {
-      // Both are `*time.Duration` in GoTrue, so nil means "no limit". The response type declares
-      // them `number`, not `number | null`, so 0 carries that meaning here.
+    it('reports the session limits as 0, the platform\'s own way of spelling "no limit"', () => {
+      // Both are `*time.Duration` in GoTrue, where nil means "no limit"; GoTrue never reads a `0`
+      // as disabled, and would take one as a limit of zero. The response type declares them
+      // `number`, not `number | null`, so 0 carries the meaning here and `mapping.ts` omits the key
+      // rather than writing it, which leaves GoTrue on its nil default.
       expect(DEFAULTS).toHaveProperty('SESSIONS_TIMEBOX', 0)
       expect(DEFAULTS).toHaveProperty('SESSIONS_INACTIVITY_TIMEOUT', 0)
     })

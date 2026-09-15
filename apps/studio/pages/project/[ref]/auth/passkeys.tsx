@@ -17,7 +17,9 @@ import type { NextPageWithLayout } from '@/types'
 
 const PasskeysPage: NextPageWithLayout = () => {
   const { hasLoaded: flagsLoaded } = useFeatureFlags()
-  const isPasskeyAuthEnabled = useFlag('enablePasskeyAuth')
+  const passkeyFlag = useFlag('enablePasskeyAuth')
+  // The flag is a hosted-platform rollout switch, and no flag service answers self-hosted.
+  const isPasskeyAuthEnabled = !IS_PLATFORM || passkeyFlag
 
   const isResolvingPasskeyFlag = IS_PLATFORM && !flagsLoaded
 

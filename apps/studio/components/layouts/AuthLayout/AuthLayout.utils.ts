@@ -231,7 +231,9 @@ export const useGenerateAuthMenu = (): ProductMenuGroup[] => {
 
   return generateAuthMenu({
     ref,
-    isPlatform: IS_PLATFORM,
+    // Self-hosted Studio writes GoTrue's config itself, so the Authentication pages that were
+    // platform-only are reachable here too.
+    isPlatform: true,
     showOverview,
     features: {
       signInProviders: authenticationSignInProviders,
@@ -240,7 +242,8 @@ export const useGenerateAuthMenu = (): ProductMenuGroup[] => {
       multiFactor: authenticationMultiFactor,
       attackProtection: authenticationAttackProtection,
       performance: authenticationPerformance,
-      passkeys: enablePasskeyAuth,
+      // The flag is a hosted-platform rollout switch, and no flag service answers self-hosted.
+      passkeys: !IS_PLATFORM || enablePasskeyAuth,
     },
   })
 }

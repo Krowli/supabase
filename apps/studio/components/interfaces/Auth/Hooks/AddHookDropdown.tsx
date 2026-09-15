@@ -20,6 +20,7 @@ import { useAuthConfigQuery } from '@/data/auth/auth-config-query'
 import { useCheckEntitlements } from '@/hooks/misc/useCheckEntitlements'
 import { useAsyncCheckPermissions } from '@/hooks/misc/useCheckPermissions'
 import { useSelectedOrganizationQuery } from '@/hooks/misc/useSelectedOrganization'
+import { IS_PLATFORM } from '@/lib/constants'
 
 interface AddHookDropdownProps {
   buttonText?: string
@@ -44,7 +45,11 @@ export const AddHookDropdown = ({
   const { data: authConfig } = useAuthConfigQuery({ projectRef })
   const { can: canUpdateAuthHook } = useAsyncCheckPermissions(PermissionAction.AUTH_EXECUTE, '*')
   const { getEntitlementSetValues: getEntitledHookSet } = useCheckEntitlements('auth.hooks')
-  const entitledHookSet = getEntitledHookSet()
+  // An entitlement is a hosted-plan allowance; self-hosted there is no plan, so every hook is one
+  // this GoTrue can run.
+  const entitledHookSet = IS_PLATFORM
+    ? getEntitledHookSet()
+    : HOOKS_DEFINITIONS.map((definition) => definition.entitlementKey)
 
   const { availableHooks, nonAvailableHooks } = useMemo(() => {
     const allHooks: Hook[] = HOOKS_DEFINITIONS.map((definition) => ({

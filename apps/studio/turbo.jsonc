@@ -72,6 +72,10 @@
         "BRAINTRUST_API_KEY",
         "BRAINTRUST_PROJECT_ID",
         "AUTH_JWT_SECRET",
+        // Where the self-hosted Auth pages keep their own settings file, and the GoTrue config
+        // directory they render `99_studio.env` into (see lib/api/self-hosted/auth-config).
+        "STUDIO_AUTH_STATE_DIR",
+        "GOTRUE_CONFIG_DIR",
         "LOGFLARE_API_KEY",
         "LOGFLARE_PUBLIC_ACCESS_TOKEN",
         "LOGFLARE_PRIVATE_ACCESS_TOKEN",

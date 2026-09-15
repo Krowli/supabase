@@ -50,9 +50,7 @@ export const StorageMenuV2 = () => {
     () => router.push(`/project/${ref}/storage/vectors`),
     { enabled: showVectors }
   )
-  useShortcut(SHORTCUT_IDS.NAV_STORAGE_S3, () => router.push(`/project/${ref}/storage/s3`), {
-    enabled: isPlatform,
-  })
+  useShortcut(SHORTCUT_IDS.NAV_STORAGE_S3, () => router.push(`/project/${ref}/storage/s3`))
 
   const bucketTypes = Object.entries(BUCKET_TYPES).filter(([key]) => {
     if (key === 'analytics') return showAnalytics
@@ -98,26 +96,23 @@ export const StorageMenuV2 = () => {
           })}
         </div>
 
-        {isPlatform && (
-          <>
-            <div className="h-px w-[calc(100%-1.5rem)] mx-auto md:w-full bg-border" />
-            <div className="md:mx-3">
-              <Menu.Group title={<span className="uppercase font-mono">Configuration</span>} />
+        {/* Self-hosted serves the S3 page from lib/api/self-hosted/service-config/storage.ts. */}
+        <div className="h-px w-[calc(100%-1.5rem)] mx-auto md:w-full bg-border" />
+        <div className="md:mx-3">
+          <Menu.Group title={<span className="uppercase font-mono">Configuration</span>} />
 
-              <ShortcutTooltip
-                shortcutId={SHORTCUT_IDS.NAV_STORAGE_S3}
-                side="right"
-                delayDuration={1000}
-              >
-                <Link href={`/project/${ref}/storage/s3`}>
-                  <Menu.Item rounded active={page === 's3'}>
-                    <p className="truncate">S3</p>
-                  </Menu.Item>
-                </Link>
-              </ShortcutTooltip>
-            </div>
-          </>
-        )}
+          <ShortcutTooltip
+            shortcutId={SHORTCUT_IDS.NAV_STORAGE_S3}
+            side="right"
+            delayDuration={1000}
+          >
+            <Link href={`/project/${ref}/storage/s3`}>
+              <Menu.Item rounded active={page === 's3'}>
+                <p className="truncate">S3</p>
+              </Menu.Item>
+            </Link>
+          </ShortcutTooltip>
+        </div>
       </div>
     </Menu>
   )

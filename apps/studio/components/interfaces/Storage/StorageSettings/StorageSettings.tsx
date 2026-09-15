@@ -234,13 +234,14 @@ export const StorageSettings = () => {
       <PageSection>
         <PageSectionContent className="flex flex-col gap-y-8">
           <Form {...form}>
-            {!IS_PLATFORM ? (
+            {!IS_PLATFORM && (
               <Admonition
                 type="default"
-                title="Storage settings are not available for self-hosted projects"
-                description="Storage settings are only available for Supabase Platform projects."
+                title="Changes apply after a restart"
+                description="Self-hosted storage reads these settings at start-up. After saving, restart the supabase-storage service in Coolify."
               />
-            ) : isLoading ? (
+            )}
+            {isLoading ? (
               <GenericSkeletonLoader />
             ) : (
               <>

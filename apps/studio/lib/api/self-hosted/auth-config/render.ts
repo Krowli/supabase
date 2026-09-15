@@ -52,14 +52,22 @@ export function renderEnvFile(map: Record<string, string>): string {
 /**
  * Writes the env file atomically. GoTrue watches `*.env` in this directory and reloads on change,
  * so the partial write lands under a `.tmp` name it ignores and only the rename is observable.
+ *
+ * `fileName` is for the other self-hosted settings pages: Storage renders one file of its own name
+ * (`storage.env`) into its own directory, and the atomic rename and the mode are the same either
+ * way, so the name is the only thing that differs.
  */
-export async function writeEnvFile(content: string, dir: string): Promise<void> {
+export async function writeEnvFile(
+  content: string,
+  dir: string,
+  fileName = ENV_FILE_NAME
+): Promise<void> {
   await mkdir(dir, { recursive: true })
 
   tmpSequence += 1
-  const tmpPath = join(dir, `${ENV_FILE_NAME}.tmp.${process.pid}.${tmpSequence}`)
+  const tmpPath = join(dir, `${fileName}.tmp.${process.pid}.${tmpSequence}`)
   // `mode` only applies when the file is created, so chmod covers the case where it already exists.
   await writeFile(tmpPath, content, { mode: 0o644 })
   await chmod(tmpPath, 0o644)
-  await rename(tmpPath, join(dir, ENV_FILE_NAME))
+  await rename(tmpPath, join(dir, fileName))
 }

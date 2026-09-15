@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { PermissionAction } from '@supabase/shared-types/out/constants'
-import { useParams } from 'common'
+import { IS_PLATFORM, useParams } from 'common'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { SubmitHandler, useForm } from 'react-hook-form'
@@ -25,6 +25,7 @@ import {
   TableRow,
   WarningIcon,
 } from 'ui'
+import { Admonition } from 'ui-patterns/Admonition'
 import { Input } from 'ui-patterns/DataInputs/Input'
 import { FormItemLayout } from 'ui-patterns/form/FormItemLayout/FormItemLayout'
 import { PageContainer } from 'ui-patterns/PageContainer'
@@ -141,6 +142,14 @@ export const S3Connection = () => {
           </PageSectionMeta>
 
           <PageSectionContent>
+            {!IS_PLATFORM && (
+              <Admonition
+                className="mb-4"
+                type="default"
+                title="Changes apply after a restart"
+                description="Self-hosted storage reads these settings at start-up. After saving, restart the supabase-storage service in Coolify."
+              />
+            )}
             {isErrorStorageConfig && (
               <AlertError
                 className="mb-4"

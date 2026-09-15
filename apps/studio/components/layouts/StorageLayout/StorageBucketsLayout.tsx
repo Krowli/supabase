@@ -1,4 +1,4 @@
-import { IS_PLATFORM, useParams } from 'common'
+import { useParams } from 'common'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { PropsWithChildren } from 'react'
@@ -34,14 +34,11 @@ export const StorageBucketsLayout = ({
             label: 'Buckets',
             href: `/project/${ref}/storage/files`,
           },
-          ...(IS_PLATFORM
-            ? [
-                {
-                  label: 'Settings',
-                  href: `/project/${ref}/storage/files/settings`,
-                },
-              ]
-            : []),
+          {
+            // Self-hosted reaches the same endpoints now; the page says a restart applies a save.
+            label: 'Settings',
+            href: `/project/${ref}/storage/files/settings`,
+          },
           {
             label: 'Policies',
             href: `/project/${ref}/storage/files/policies`,

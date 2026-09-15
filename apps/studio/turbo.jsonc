@@ -81,6 +81,16 @@
         // settings endpoint (see lib/api/self-hosted/service-config).
         "REALTIME_URL",
         "REALTIME_TENANT_ID",
+        // The directory the self-hosted Storage settings render `storage.env` into, and the storage
+        // settings mirrored into Studio's container so those pages can show what the storage
+        // container is running before anything has been saved from the UI (see
+        // lib/api/self-hosted/service-config/storage.ts).
+        "STORAGE_CONFIG_DIR",
+        "UPLOAD_FILE_SIZE_LIMIT",
+        "ENABLE_IMAGE_TRANSFORMATION",
+        "S3_PROTOCOL_ENABLED",
+        "S3_PROTOCOL_ACCESS_KEY_ID",
+        "S3_PROTOCOL_ACCESS_KEY_SECRET",
         // The GoTrue config directory the self-hosted Auth pages render `99_studio.env` into, and
         // where they keep their own settings file (see lib/api/self-hosted/auth-config).
         "GOTRUE_CONFIG_DIR",

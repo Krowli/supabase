@@ -1,7 +1,7 @@
 {
   "rules": {
     "react-hooks/exhaustive-deps": 160,
-    "import/no-anonymous-default-export": 64,
+    "import/no-anonymous-default-export": 67,
     "@tanstack/query/exhaustive-deps": 89,
     "@typescript-eslint/no-explicit-any": 875,
     "no-restricted-imports": 0,
@@ -188,6 +188,7 @@
       "pages/api/platform/projects/[ref]/config/pgbouncer.ts": 1,
       "pages/api/platform/projects/[ref]/config/postgrest.ts": 1,
       "pages/api/platform/projects/[ref]/config/realtime.ts": 1,
+      "pages/api/platform/projects/[ref]/config/storage.ts": 1,
       "pages/api/platform/projects/[ref]/config/supavisor.ts": 1,
       "pages/api/platform/projects/[ref]/databases.ts": 1,
       "pages/api/platform/projects/[ref]/index.ts": 1,
@@ -207,6 +208,8 @@
       "pages/api/platform/storage/[ref]/buckets/[id]/objects/public-url.ts": 1,
       "pages/api/platform/storage/[ref]/buckets/[id]/objects/sign.ts": 1,
       "pages/api/platform/storage/[ref]/buckets/index.ts": 1,
+      "pages/api/platform/storage/[ref]/credentials/[id].ts": 1,
+      "pages/api/platform/storage/[ref]/credentials/index.ts": 1,
       "pages/api/platform/telemetry/event.ts": 1,
       "pages/api/v1/projects/[ref]/api-keys.ts": 1,
       "pages/api/v1/projects/[ref]/database/migrations.ts": 1,

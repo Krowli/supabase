@@ -1,7 +1,7 @@
 import { components } from 'api-types'
 
 import { AUTH_JWT_SECRET, POSTGRES_PASSWORD } from '../constants'
-import { ServiceConfigValidationError } from './errors'
+import { ServiceConfigValidationError, ServiceUnavailableError } from './errors'
 import { adminFetch } from './http'
 import { signHs256Jwt } from './jwt'
 
@@ -42,9 +42,19 @@ const transactionPort = () => Number(process.env.POOLER_PROXY_PORT_TRANSACTION) 
  * The host an operator's own client can reach, as opposed to the compose-internal names every other
  * value here is expressed in. Read inside the function rather than at import so a test can set it;
  * `lib/constants/api.ts` parses the same variable for the browser-facing constants.
+ *
+ * A `SUPABASE_PUBLIC_URL` that will not parse falls back to `localhost` rather than throwing. The
+ * host is one field of a settings page, and failing the whole read over it would take the pool size
+ * down with it — a wrong hostname in a connection string an operator can see and correct is the
+ * better failure.
  */
-const publicHost = () =>
-  new URL(process.env.SUPABASE_PUBLIC_URL || 'http://localhost:8000').hostname
+const publicHost = () => {
+  try {
+    return new URL(process.env.SUPABASE_PUBLIC_URL || 'http://localhost:8000').hostname
+  } catch {
+    return 'localhost'
+  }
+}
 
 /**
  * A token for one request. Supavisor's `check_auth` plug verifies it with `API_JWT_SECRET`, which
@@ -72,13 +82,17 @@ const asNumber = (value: unknown): number | undefined =>
 /**
  * The tenant Supavisor holds. `TenantView` wraps it as `{ data: … }` and replaces the association
  * with the serialised users, so `users` is always an array on a tenant that exists.
+ *
+ * A 200 that carries no tenant is a `ServiceUnavailableError` like any other bad answer from the
+ * pooler, not a 500: nothing Studio did is wrong, and `POOLER_TENANT_ID` naming a tenant Supavisor
+ * does not have is exactly the misconfiguration the operator needs told to them.
  */
 async function getTenant(): Promise<Tenant> {
   const body = await adminFetch(tenantUrl(), { method: 'GET', token: token() })
   const tenant = asRecord(asRecord(body)?.data)
 
   if (!tenant) {
-    throw new Error(`Supavisor returned no tenant for ${poolerTenantId()}`)
+    throw new ServiceUnavailableError(`Supavisor returned no tenant for ${poolerTenantId()}`)
   }
 
   return tenant
@@ -248,6 +262,19 @@ function toUserPayload(
  * server's to set, and the tenant changeset does not cast them. Everything else is sent back
  * unchanged, which is what makes a full-changeset `PUT` behave like the patch the UI thinks it is
  * sending.
+ *
+ * **Only `default_pool_size` and `max_client_conn` are acted on.** The rest of
+ * `UpdatePgbouncerConfigBody` is accepted and ignored, so a client saving the whole form is not
+ * refused for sending fields the platform's contract has:
+ *
+ * - `pool_mode` is not a tenant setting at all. In Supavisor the mode is `mode_type` on each user,
+ *   set when the tenant and its manager user are seeded, and it is carried through a write
+ *   untouched — see {@link toUserPayload}. A `pool_mode` in the body moves nothing; the form does
+ *   not send one, and the platform marks the field deprecated.
+ * - `ignore_startup_parameters` and `pgbouncer_enabled` have no Supavisor counterpart; the `GET`
+ *   answers with fixed values for both and the form echoes them straight back.
+ * - `query_wait_timeout`, `reserve_pool_size`, `server_idle_timeout` and `server_lifetime` are
+ *   PgBouncer settings the `GET` does not answer with either.
  */
 export async function updatePoolerConfig(
   body: UpdatePgbouncerConfigBody

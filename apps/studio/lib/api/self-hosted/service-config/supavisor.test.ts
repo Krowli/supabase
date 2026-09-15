@@ -202,9 +202,30 @@ describe('api/self-hosted/service-config/supavisor', () => {
     })
 
     it('says so rather than answering with an empty configuration when the tenant is missing', async () => {
+      // A 200 carrying no tenant means POOLER_TENANT_ID names one Supavisor does not have. That is
+      // the pooler's answer being unusable, so it is a 502 like any other, not a 500.
       fetchMock.mockResolvedValue(ok({ data: null }))
 
-      await expect(getPoolerConfig()).rejects.toThrow(/no tenant/)
+      await expect(getPoolerConfig()).rejects.toThrow(ServiceUnavailableError)
+      await expect(getPoolerConfig()).rejects.toThrow(/no tenant for dev_tenant/)
+    })
+
+    it('reports a missing tenant the same way on the Connect sheet endpoint', async () => {
+      fetchMock.mockResolvedValue(ok({ data: null }))
+
+      await expect(getSupavisorConfig()).rejects.toThrow(ServiceUnavailableError)
+    })
+
+    it('falls back to localhost rather than failing on a SUPABASE_PUBLIC_URL that will not parse', async () => {
+      vi.stubEnv('SUPABASE_PUBLIC_URL', 'not a url')
+      supavisorHolds()
+
+      await expect(getPoolerConfig()).resolves.toMatchObject({
+        db_dns_name: 'localhost',
+        db_host: 'localhost',
+        connection_string:
+          'postgresql://postgres.dev_tenant:[YOUR-PASSWORD]@localhost:6543/postgres',
+      })
     })
 
     it('lets a service failure through as ServiceUnavailableError', async () => {
@@ -377,6 +398,30 @@ describe('api/self-hosted/service-config/supavisor', () => {
       await updatePoolerConfig({ default_pool_size: undefined, ignore_startup_parameters: '' })
 
       expect(putBody()).toMatchObject({ default_pool_size: 20, default_max_clients: 200 })
+    })
+
+    it('accepts the deprecated fields of the contract without acting on them', async () => {
+      // `pool_mode` is not a tenant setting: the mode is `mode_type` on the manager user, seeded
+      // with the tenant. A client saving the whole form must not be refused for sending it.
+      supavisorHolds()
+
+      await updatePoolerConfig({
+        default_pool_size: 30,
+        pool_mode: 'session',
+        pgbouncer_enabled: false,
+        ignore_startup_parameters: 'options',
+        query_wait_timeout: 120,
+      })
+
+      const sent = putBody()
+      expect(sent).not.toHaveProperty('pool_mode')
+      expect(sent).not.toHaveProperty('pgbouncer_enabled')
+      expect(sent).not.toHaveProperty('ignore_startup_parameters')
+      expect(sent).not.toHaveProperty('query_wait_timeout')
+
+      // The mode the manager user was seeded with survives the write untouched.
+      const users = sent.users as Record<string, unknown>[]
+      expect(users[0].mode_type).toBe('transaction')
     })
 
     it('signs the PUT too', async () => {

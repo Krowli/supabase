@@ -124,6 +124,16 @@ describe('/api/platform/projects/[ref]/config/pgbouncer', () => {
       expect(res._getStatusCode()).toBe(502)
       expect(JSON.parse(res._getData()).error.message).toContain('fetch failed')
     })
+
+    it('answers 502, not 500, when Supavisor has no such tenant', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(ok({ data: null })))
+      const { req, res } = createMocks({ method: 'GET', query: { ref: 'default' } })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(502)
+      expect(JSON.parse(res._getData()).error.message).toContain('no tenant')
+    })
   })
 
   describe('PATCH', () => {

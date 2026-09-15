@@ -13,14 +13,19 @@ const env = (config: Record<string, unknown>, ctx = CTX) => toEnv(config as Plat
 
 describe('api/self-hosted/auth-config/mapping', () => {
   describe('key sets', () => {
-    it('manages every platform key except the computed and UI-only ones', () => {
+    it('manages every platform key except the computed ones', () => {
       for (const key of COMPUTED_KEYS) expect(MANAGED_KEYS.has(key)).toBe(false)
-      for (const key of UI_ONLY_KEYS) expect(MANAGED_KEYS.has(key)).toBe(false)
 
-      expect(MANAGED_KEYS.size).toBe(239)
+      expect(MANAGED_KEYS.size).toBe(240)
       expect(MANAGED_KEYS.has('SITE_URL')).toBe(true)
       // Writable but never returned, so it exists only in the update body.
       expect(MANAGED_KEYS.has('EXTERNAL_X_ENABLED')).toBe(true)
+    })
+
+    it('manages the UI-only keys too, because a client sends them', () => {
+      // `DB_MAX_POOL_SIZE_UNIT` is in `UpdateGoTrueConfigBody`. Refusing it as unknown would make
+      // every pool-size change fail. It is barred from the env file, not from a PATCH.
+      for (const key of UI_ONLY_KEYS) expect(MANAGED_KEYS.has(key)).toBe(true)
     })
 
     it('keeps the unmapped keys managed, so they still round-trip through state', () => {
@@ -355,6 +360,7 @@ describe('api/self-hosted/auth-config/mapping', () => {
 
       expect(silent.sort()).toEqual([
         'CUSTOM_OAUTH_MAX_PROVIDERS',
+        'DB_MAX_POOL_SIZE_UNIT',
         'MFA_ALLOW_LOW_AAL',
         'NIMBUS_OAUTH_CLIENT_ID',
         'NIMBUS_OAUTH_CLIENT_SECRET',

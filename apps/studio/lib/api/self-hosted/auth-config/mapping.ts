@@ -1,7 +1,7 @@
 import { components } from 'api-types'
 
 import { COMPUTED_KEYS, TEMPLATE_IDS } from './defaults'
-import { PLATFORM_CONFIG_KEYS } from './keys.generated'
+import { PLATFORM_CONFIG_TYPES } from './keys.generated'
 
 /**
  * A partial platform auth config, the shape both the GET response and a PATCH body take.
@@ -13,8 +13,18 @@ import { PLATFORM_CONFIG_KEYS } from './keys.generated'
  */
 export type PlatformConfig = Partial<components['schemas']['GoTrueConfigResponse']>
 
-/** Keys the UI uses to interpret another key. They never become an env line of their own. */
+/**
+ * Keys that qualify another key rather than carrying a setting of their own. They govern emission
+ * only: `toEnv` never writes one as an env line, but it still reads `DB_MAX_POOL_SIZE_UNIT` to
+ * decide which GoTrue field the pool size belongs in.
+ *
+ * They are still managed. `UpdateGoTrueConfigBody` declares `DB_MAX_POOL_SIZE_UNIT`, so the UI
+ * sends it, and leaving it out of `MANAGED_KEYS` would make every pool-size change fail as an
+ * unknown key.
+ */
 export const UI_ONLY_KEYS = ['DB_MAX_POOL_SIZE_UNIT'] as const
+
+const UI_ONLY: ReadonlySet<string> = new Set<string>(UI_ONLY_KEYS)
 
 /**
  * Platform keys with no GoTrue counterpart. Studio stores them so the UI round-trips, and never
@@ -33,12 +43,13 @@ export const UNMAPPED_KEYS: ReadonlySet<string> = new Set([
   'NIMBUS_OAUTH_CLIENT_SECRET',
 ])
 
-/** Every platform key Studio accepts on a PATCH and keeps in its state. */
+/**
+ * Every platform key Studio accepts on a PATCH and keeps in its state: the whole contract except
+ * the computed keys, which Studio derives rather than stores.
+ */
 export const MANAGED_KEYS: ReadonlySet<string> = new Set(
-  PLATFORM_CONFIG_KEYS.filter(
-    (key) =>
-      !(COMPUTED_KEYS as readonly string[]).includes(key) &&
-      !(UI_ONLY_KEYS as readonly string[]).includes(key)
+  Object.keys(PLATFORM_CONFIG_TYPES).filter(
+    (key) => !(COMPUTED_KEYS as readonly string[]).includes(key)
   )
 )
 
@@ -73,6 +84,17 @@ const ENV_NAME_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
  *
  * `SMTP_PORT` is deliberately absent: the platform types it `string`, GoTrue's `.SMTP.Port` is an
  * `int`.
+ *
+ * So are `SMS_TEST_OTP` (`map[string]string`) and `SMS_TEST_OTP_VALID_UNTIL` (a custom `Time`).
+ * The consequence is worth knowing: a test OTP set once and then cleared in the UI is **not**
+ * cleared in GoTrue. The empty value is dropped, the key leaves the file, and GoTrue keeps the last
+ * value it read. Clearing those two takes a reset in the running container.
+ *
+ * Both would in fact survive a `""` — envconfig skips an empty map value, and `Time` exists
+ * precisely because `time.Time.UnmarshalText` cannot parse one (`configuration.go:38`). They are
+ * excluded anyway, because the rule is drawn on the declared Go type rather than on a per-field
+ * reading of what each decoder tolerates, and a rule that needs that reading is one a later change
+ * to GoTrue can invalidate silently.
  */
 const STRING_TYPED_KEYS: ReadonlySet<string> = new Set([
   'EXTERNAL_APPLE_CLIENT_ID',
@@ -271,10 +293,10 @@ export function toEnv(
 
     if (value === null || value === undefined) continue
 
-    // `MANAGED_KEYS` already excludes the computed and UI-only keys. It also catches a key the
-    // contract no longer has: `validatePatch` refuses an unknown key, so one arriving here came
-    // out of a state file an older Studio wrote, and `renderEnvFile` would reject the name.
-    if (!MANAGED_KEYS.has(key) || key === QUOTA_KEY) continue
+    // `MANAGED_KEYS` excludes the computed keys, and also catches a key the contract no longer
+    // has: `validatePatch` refuses an unknown key, so one arriving here came out of a state file
+    // an older Studio wrote, and `renderEnvFile` would reject the name.
+    if (!MANAGED_KEYS.has(key) || key === QUOTA_KEY || UI_ONLY.has(key)) continue
     if (UNMAPPED_KEYS.has(key) || FOLDED_CLIENT_ID_KEYS.has(key)) continue
 
     // GoTrue takes a URL for a template body, never the body itself. An empty string is how it is

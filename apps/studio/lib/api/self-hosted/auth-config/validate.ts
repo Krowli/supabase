@@ -1,4 +1,5 @@
 import { COMPUTED_KEYS } from './defaults'
+import { PLATFORM_CONFIG_TYPES } from './keys.generated'
 import { MANAGED_KEYS, PlatformConfig } from './mapping'
 
 export type ValidationResult = { ok: true } | { ok: false; message: string }
@@ -8,26 +9,6 @@ const fail = (message: string): ValidationResult => ({ ok: false, message })
 
 /** Keys the UI derives from the rest of the config. A PATCH that names one is a client bug. */
 const READ_ONLY_KEYS: ReadonlySet<string> = new Set<string>(COMPUTED_KEYS)
-
-/** Keys the platform types `boolean` beyond the `_ENABLED` suffix. */
-const EXTRA_BOOLEAN_KEYS: ReadonlySet<string> = new Set([
-  'AUDIT_LOG_DISABLE_POSTGRES',
-  'DISABLE_SIGNUP',
-  'MAILER_AUTOCONFIRM',
-  'SESSIONS_SINGLE_PER_USER',
-  'SMS_AUTOCONFIRM',
-])
-
-/** Keys the platform types `number` beyond the `RATE_LIMIT_` prefix. */
-const EXTRA_NUMBER_KEYS: ReadonlySet<string> = new Set([
-  'API_MAX_REQUEST_DURATION',
-  'DB_MAX_POOL_SIZE',
-  'JWT_EXP',
-  'MAILER_OTP_EXP',
-  'MAILER_OTP_LENGTH',
-  'MFA_MAX_ENROLLED_FACTORS',
-  'PASSWORD_MIN_LENGTH',
-])
 
 /** Hours. GoTrue holds both as a duration; a year is already far past any useful session limit. */
 const MAX_SESSION_HOURS = 8760
@@ -45,6 +26,7 @@ const ALLOWED_URI_CHARACTERS = /^[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%[\]{}]+$/
 /** A Postgres identifier: what `pg-functions://` hook URIs name a schema and a function with. */
 const POSTGRES_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/
 
+const PG_FUNCTIONS_SCHEME = 'pg-functions://'
 const PG_FUNCTIONS_URI = /^pg-functions:\/\/postgres\/([^/]+)\/([^/]+)$/
 
 /** Hosts an unencrypted hook may point at: a hook URI over plain HTTP must not leave the machine. */
@@ -59,10 +41,32 @@ const PLAIN_HTTP_HOSTS: ReadonlySet<string> = new Set([
 const SYMMETRIC_SECRET = /^v1,whsec_[A-Za-z0-9+/=]+$/
 const ASYMMETRIC_SECRET = /^v1a,whpk_[^:]+:whsk_.+$/
 
-const isBooleanKey = (key: string) => key.endsWith('_ENABLED') || EXTRA_BOOLEAN_KEYS.has(key)
-const isNumberKey = (key: string) => key.startsWith('RATE_LIMIT_') || EXTRA_NUMBER_KEYS.has(key)
-
 const isBlank = (value: unknown) => typeof value !== 'string' || value.trim() === ''
+
+/**
+ * Whether a value matches the type the platform contract declares for its key.
+ *
+ * Driven off the generated table rather than a list of keys written here, because a list written
+ * here covers only the keys someone thought of. Every value that passes goes into a file GoTrue
+ * reloads as a whole, so a string where a number belongs does not break one setting — it leaves
+ * every setting in the file unapplied.
+ */
+function validateDeclaredType(key: string, value: unknown): ValidationResult {
+  const declared = PLATFORM_CONFIG_TYPES[key]
+
+  if (Array.isArray(declared)) {
+    if (typeof value !== 'string' || !declared.includes(value))
+      return fail(`${key} must be one of: ${declared.map((allowed) => `'${allowed}'`).join(', ')}`)
+    return ok
+  }
+
+  // Only the two `*_CUSTOM_CONTENTS` keys, already refused as read-only before this runs.
+  if (declared === 'object') return fail(`${key} is read-only`)
+
+  if (typeof value !== declared) return fail(`${key} must be a ${declared}`)
+
+  return ok
+}
 
 /** Balanced, properly nested `[]` and `{}`. An unbalanced glob panics GoTrue on startup. */
 function hasBalancedBrackets(entry: string): boolean {
@@ -101,11 +105,22 @@ function validateHookUri(key: string, value: unknown): ValidationResult {
   // An empty URI is how a hook is removed.
   if (value === '') return ok
 
-  const postgres = PG_FUNCTIONS_URI.exec(value)
-  if (postgres !== null) {
+  if (value.startsWith(PG_FUNCTIONS_SCHEME)) {
+    const postgres = PG_FUNCTIONS_URI.exec(value)
+    if (postgres === null) {
+      // GoTrue reaches a Postgres hook over its own connection, so the host is not an address it
+      // dials — it is fixed. A different one is a misreading of the format, not another database.
+      const host = value.slice(PG_FUNCTIONS_SCHEME.length).split('/')[0]
+      if (host !== 'postgres')
+        return fail(`${key} must use the host 'postgres', not '${host}': ${value}`)
+
+      return fail(`${key} must be ${PG_FUNCTIONS_SCHEME}postgres/<schema>/<function>: ${value}`)
+    }
+
     const [, schema, name] = postgres
     if (!POSTGRES_IDENTIFIER.test(schema) || !POSTGRES_IDENTIFIER.test(name))
       return fail(`${key} names an invalid Postgres schema or function: ${value}`)
+
     return ok
   }
 
@@ -173,6 +188,9 @@ function validateValue(key: string, value: unknown): ValidationResult {
   }
 
   if (key === 'SMTP_PORT') {
+    // An empty port is how it is cleared. `toEnv` drops it rather than writing `""`, which
+    // GoTrue's `int` field cannot parse.
+    if (value === '') return ok
     if (typeof value !== 'string' || !/^\d+$/.test(value))
       return fail('SMTP_PORT must be a string of digits')
     const port = Number(value)
@@ -241,11 +259,8 @@ export function validatePatch(
     // Null clears a key; the type and value rules below have nothing to say about it.
     if (value === null) continue
 
-    if (typeof value !== 'boolean' && typeof value !== 'number' && typeof value !== 'string')
-      return fail(`${key} must be a string, number or boolean`)
-
-    if (isBooleanKey(key) && typeof value !== 'boolean') return fail(`${key} must be a boolean`)
-    if (isNumberKey(key) && typeof value !== 'number') return fail(`${key} must be a number`)
+    const declared = validateDeclaredType(key, value)
+    if (!declared.ok) return declared
 
     const result = validateValue(key, value)
     if (!result.ok) return result

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { PlatformConfig } from './mapping'
+import { PLATFORM_CONFIG_TYPES } from './keys.generated'
+import { MANAGED_KEYS, PlatformConfig } from './mapping'
 import { validatePatch } from './validate'
 
 const check = (patch: Record<string, unknown>, current: Record<string, unknown> = {}) =>
@@ -40,11 +41,50 @@ describe('api/self-hosted/auth-config/validate', () => {
   describe('value types', () => {
     it('rejects an object or an array for any key', () => {
       expect(rejection({ SITE_URL: { href: 'https://a.example.com' } })).toBe(
-        'SITE_URL must be a string, number or boolean'
+        'SITE_URL must be a string'
       )
       expect(rejection({ URI_ALLOW_LIST: ['https://a.example.com'] })).toBe(
-        'URI_ALLOW_LIST must be a string, number or boolean'
+        'URI_ALLOW_LIST must be a string'
       )
+    })
+
+    it('rejects a string for every key the contract types boolean or number', () => {
+      // The reason the type table is generated: a rule written as a list of keys covers only the
+      // keys someone remembered, and one string reaching the env file where GoTrue wants a bool or
+      // a number leaves every setting in the file unapplied.
+      const typed = [...MANAGED_KEYS].filter((key) => {
+        const declared = PLATFORM_CONFIG_TYPES[key]
+        return declared === 'boolean' || declared === 'number'
+      })
+
+      expect(typed.length).toBeGreaterThan(100)
+      expect(typed.filter((key) => check({ [key]: 'a string' }).ok)).toEqual([])
+    })
+
+    it('accepts the declared type for every one of those keys', () => {
+      const refused = [...MANAGED_KEYS].filter((key) => {
+        const declared = PLATFORM_CONFIG_TYPES[key]
+        if (declared !== 'boolean' && declared !== 'number') return false
+
+        return !check({ [key]: declared === 'boolean' ? false : 0 }).ok
+      })
+
+      expect(refused).toEqual([])
+    })
+
+    it('rejects a value outside the set an enum key declares', () => {
+      expect(rejection({ SMS_PROVIDER: 'nexmo' })).toBe(
+        "SMS_PROVIDER must be one of: 'messagebird', 'textlocal', 'twilio', 'twilio_verify', 'vonage'"
+      )
+      expect(rejection({ PASSWORD_REQUIRED_CHARACTERS: 'abc' })).toContain(
+        'PASSWORD_REQUIRED_CHARACTERS must be one of:'
+      )
+    })
+
+    it('accepts a value the enum key declares', () => {
+      expect(check({ SMS_PROVIDER: 'twilio_verify', PASSWORD_REQUIRED_CHARACTERS: '' })).toEqual({
+        ok: true,
+      })
     })
 
     it('rejects a non-boolean for a boolean key', () => {
@@ -192,12 +232,18 @@ describe('api/self-hosted/auth-config/validate', () => {
     })
 
     it('rejects a provider GoTrue does not implement', () => {
+      // The patch names the provider, so the declared set catches it first.
       expect(
         rejection({
           SECURITY_CAPTCHA_ENABLED: true,
           SECURITY_CAPTCHA_SECRET: 'secret',
           SECURITY_CAPTCHA_PROVIDER: 'recaptcha',
         })
+      ).toBe("SECURITY_CAPTCHA_PROVIDER must be one of: 'turnstile', 'hcaptcha'")
+
+      // The patch does not name it, so the cross-field rule is what catches a stored bad value.
+      expect(
+        rejection({ SECURITY_CAPTCHA_ENABLED: true, SECURITY_CAPTCHA_SECRET: 'secret' }, {})
       ).toBe("SECURITY_CAPTCHA_PROVIDER must be 'hcaptcha' or 'turnstile'")
     })
 
@@ -231,7 +277,8 @@ describe('api/self-hosted/auth-config/validate', () => {
       expect(rejection({ SESSIONS_INACTIVITY_TIMEOUT: 8761 })).toBe(
         'SESSIONS_INACTIVITY_TIMEOUT must be between 0 and 8760 hours'
       )
-      expect(rejection({ SESSIONS_TIMEBOX: '24' })).toBe(
+      expect(rejection({ SESSIONS_TIMEBOX: '24' })).toBe('SESSIONS_TIMEBOX must be a number')
+      expect(rejection({ SESSIONS_TIMEBOX: Number.NaN })).toBe(
         'SESSIONS_TIMEBOX must be a number of hours'
       )
     })
@@ -269,6 +316,18 @@ describe('api/self-hosted/auth-config/validate', () => {
       )
       expect(rejection({ HOOK_SEND_SMS_URI: 'pg-functions://postgres/9schema/hook' })).toBe(
         'HOOK_SEND_SMS_URI names an invalid Postgres schema or function: pg-functions://postgres/9schema/hook'
+      )
+    })
+
+    it('rejects a pg-functions host other than postgres, and says which host is wanted', () => {
+      expect(rejection({ HOOK_SEND_SMS_URI: 'pg-functions://mydb/public/send_sms' })).toBe(
+        "HOOK_SEND_SMS_URI must use the host 'postgres', not 'mydb': pg-functions://mydb/public/send_sms"
+      )
+    })
+
+    it('rejects a pg-functions URI that is not schema and function', () => {
+      expect(rejection({ HOOK_SEND_SMS_URI: 'pg-functions://postgres/send_sms' })).toBe(
+        'HOOK_SEND_SMS_URI must be pg-functions://postgres/<schema>/<function>: pg-functions://postgres/send_sms'
       )
     })
 
@@ -358,9 +417,8 @@ describe('api/self-hosted/auth-config/validate', () => {
 
   describe('SMTP_PORT', () => {
     it('rejects anything that is not a port number as text', () => {
-      expect(rejection({ SMTP_PORT: 587 })).toBe('SMTP_PORT must be a string of digits')
+      expect(rejection({ SMTP_PORT: 587 })).toBe('SMTP_PORT must be a string')
       expect(rejection({ SMTP_PORT: '58a' })).toBe('SMTP_PORT must be a string of digits')
-      expect(rejection({ SMTP_PORT: '' })).toBe('SMTP_PORT must be a string of digits')
       expect(rejection({ SMTP_PORT: '0' })).toBe('SMTP_PORT must be between 1 and 65535')
       expect(rejection({ SMTP_PORT: '65536' })).toBe('SMTP_PORT must be between 1 and 65535')
     })
@@ -368,6 +426,29 @@ describe('api/self-hosted/auth-config/validate', () => {
     it('accepts a port in range', () => {
       expect(check({ SMTP_PORT: '587' })).toEqual({ ok: true })
       expect(check({ SMTP_PORT: '65535' })).toEqual({ ok: true })
+    })
+
+    it('accepts an empty port, which is how it is cleared', () => {
+      // `toEnv` drops it rather than writing `""`, which GoTrue's `int` field cannot parse.
+      expect(check({ SMTP_PORT: '' })).toEqual({ ok: true })
+    })
+  })
+
+  describe('DB_MAX_POOL_SIZE_UNIT', () => {
+    it('rejects a unit that is neither connections nor percent', () => {
+      expect(rejection({ DB_MAX_POOL_SIZE_UNIT: 'gigabytes' })).toBe(
+        "DB_MAX_POOL_SIZE_UNIT must be one of: 'connections', 'percent'"
+      )
+    })
+
+    it('accepts both units and null, since a client sends this key with the pool size', () => {
+      expect(check({ DB_MAX_POOL_SIZE: 20, DB_MAX_POOL_SIZE_UNIT: 'connections' })).toEqual({
+        ok: true,
+      })
+      expect(check({ DB_MAX_POOL_SIZE: 30, DB_MAX_POOL_SIZE_UNIT: 'percent' })).toEqual({
+        ok: true,
+      })
+      expect(check({ DB_MAX_POOL_SIZE_UNIT: null })).toEqual({ ok: true })
     })
   })
 

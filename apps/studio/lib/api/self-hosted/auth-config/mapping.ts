@@ -95,8 +95,11 @@ const ENV_NAME_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
  * excluded anyway, because the rule is drawn on the declared Go type rather than on a per-field
  * reading of what each decoder tolerates, and a rule that needs that reading is one a later change
  * to GoTrue can invalidate silently.
+ *
+ * Exported because `validatePatch` decides the same question for an enum key: an empty value means
+ * "unset", and it may only be accepted where this set says it can be written.
  */
-const STRING_TYPED_KEYS: ReadonlySet<string> = new Set([
+export const STRING_TYPED_KEYS: ReadonlySet<string> = new Set([
   'EXTERNAL_APPLE_CLIENT_ID',
   'EXTERNAL_APPLE_SECRET',
   'EXTERNAL_AZURE_CLIENT_ID',

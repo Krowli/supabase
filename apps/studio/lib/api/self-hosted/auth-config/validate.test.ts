@@ -87,6 +87,41 @@ describe('api/self-hosted/auth-config/validate', () => {
       })
     })
 
+    it('accepts an empty value on an enum key whose GoTrue field is a string', () => {
+      // `DEFAULTS` answers `''` for both, so reading the config and saving it back untouched has to
+      // work. `toEnv` can write an empty value for both, since each is a `string` field in GoTrue.
+      expect(check({ SMS_PROVIDER: '' })).toEqual({ ok: true })
+      expect(check({ SECURITY_CAPTCHA_PROVIDER: '' })).toEqual({ ok: true })
+    })
+
+    it('still rejects a wrong value on those keys', () => {
+      expect(rejection({ SMS_PROVIDER: 'bogus' })).toBe(
+        "SMS_PROVIDER must be one of: 'messagebird', 'textlocal', 'twilio', 'twilio_verify', 'vonage'"
+      )
+      expect(rejection({ SECURITY_CAPTCHA_PROVIDER: 'bogus' })).toBe(
+        "SECURITY_CAPTCHA_PROVIDER must be one of: 'turnstile', 'hcaptcha'"
+      )
+    })
+
+    it('rejects an empty value on an enum key with no GoTrue field to write it to', () => {
+      // `DB_MAX_POOL_SIZE_UNIT` only qualifies the pool size. There is no "unset" for it, and an
+      // empty value would leave `toEnv` unable to say which GoTrue field the pool size belongs in.
+      expect(rejection({ DB_MAX_POOL_SIZE_UNIT: '' })).toBe(
+        "DB_MAX_POOL_SIZE_UNIT must be one of: 'connections', 'percent'"
+      )
+    })
+
+    it('leaves the cross-field rule to catch an empty captcha provider that matters', () => {
+      // Empty is a legal stored value; it is only a problem once captcha is on, and that is the
+      // rule that says so.
+      expect(
+        rejection(
+          { SECURITY_CAPTCHA_ENABLED: true, SECURITY_CAPTCHA_PROVIDER: '' },
+          { SECURITY_CAPTCHA_SECRET: 'stored' }
+        )
+      ).toBe("SECURITY_CAPTCHA_PROVIDER must be 'hcaptcha' or 'turnstile'")
+    })
+
     it('rejects a non-boolean for a boolean key', () => {
       expect(rejection({ MAILER_AUTOCONFIRM: 'true' })).toBe('MAILER_AUTOCONFIRM must be a boolean')
       expect(rejection({ EXTERNAL_GITHUB_ENABLED: 1 })).toBe(

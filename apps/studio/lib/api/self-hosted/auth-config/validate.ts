@@ -1,6 +1,6 @@
 import { COMPUTED_KEYS } from './defaults'
 import { PLATFORM_CONFIG_TYPES } from './keys.generated'
-import { MANAGED_KEYS, PlatformConfig } from './mapping'
+import { MANAGED_KEYS, PlatformConfig, STRING_TYPED_KEYS } from './mapping'
 
 export type ValidationResult = { ok: true } | { ok: false; message: string }
 
@@ -55,8 +55,16 @@ function validateDeclaredType(key: string, value: unknown): ValidationResult {
   const declared = PLATFORM_CONFIG_TYPES[key]
 
   if (Array.isArray(declared)) {
+    // An empty value means "unset". The contract does not list it, but `DEFAULTS` answers `''` for
+    // a key with no GoTrue default, so reading the config and saving it back untouched would be
+    // refused. It is accepted only where the value can actually be written — `SMS_PROVIDER` and
+    // `SECURITY_CAPTCHA_PROVIDER` are `string` fields in GoTrue, `DB_MAX_POOL_SIZE_UNIT` has no
+    // GoTrue field at all — which is the same set `toEnv` writes an empty value for.
+    if (value === '' && STRING_TYPED_KEYS.has(key)) return ok
+
     if (typeof value !== 'string' || !declared.includes(value))
       return fail(`${key} must be one of: ${declared.map((allowed) => `'${allowed}'`).join(', ')}`)
+
     return ok
   }
 

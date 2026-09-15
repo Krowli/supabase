@@ -1,7 +1,7 @@
 {
   "rules": {
     "react-hooks/exhaustive-deps": 160,
-    "import/no-anonymous-default-export": 58,
+    "import/no-anonymous-default-export": 63,
     "@tanstack/query/exhaustive-deps": 89,
     "@typescript-eslint/no-explicit-any": 875,
     "no-restricted-imports": 0,
@@ -147,13 +147,18 @@
       "state/table-editor-table.tsx": 1
     },
     "import/no-anonymous-default-export": {
+      "pages/api/platform/auth/[ref]/config.ts": 1,
+      "pages/api/platform/auth/[ref]/config/hooks.ts": 1,
       "pages/api/platform/auth/[ref]/invite.ts": 1,
       "pages/api/platform/auth/[ref]/magiclink.ts": 1,
       "pages/api/platform/auth/[ref]/otp.ts": 1,
       "pages/api/platform/auth/[ref]/recover.ts": 1,
+      "pages/api/platform/auth/[ref]/templates/[template]/content.ts": 1,
+      "pages/api/platform/auth/[ref]/templates/[template]/reset.ts": 1,
       "pages/api/platform/auth/[ref]/users/[id]/factors.ts": 1,
       "pages/api/platform/auth/[ref]/users/[id]/index.ts": 1,
       "pages/api/platform/auth/[ref]/users/index.ts": 1,
+      "pages/api/platform/auth/[ref]/validate/spam.ts": 1,
       "pages/api/platform/integrations/[slug].ts": 1,
       "pages/api/platform/integrations/github/authorization.ts": 1,
       "pages/api/platform/integrations/github/connections.ts": 1,

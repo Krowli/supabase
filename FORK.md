@@ -1,8 +1,14 @@
-# Studio fork — self-hosted Authentication pages
+# Studio fork — self-hosted configuration pages
 
 This is a fork of `supabase/supabase` on branch `fork/auth-selfhosted`. It makes Supabase
-Studio's Authentication configuration pages work on a self-hosted stack, where upstream hides
-them because there is no hosted control plane to save a setting to.
+Studio's configuration pages work on a self-hosted stack, where upstream hides them because there
+is no hosted control plane to save a setting to.
+
+It landed in two stages and this file is written in that order. Everything down to "Updating from
+upstream" is **stage 1 — Authentication**: those pages, backed by files Studio renders into
+GoTrue's config directory. **Stage 2 — Realtime, Storage, S3, the Data API and connection
+pooling** has its own section below, with its own compose block to paste. Stage 2 builds on stage 1
+and replaces none of it — the `studio-auth-state` volume is shared.
 
 Everything the fork adds lives under `apps/studio/`, plus this file and
 `.github/workflows/studio-fork-publish.yml`.
@@ -89,13 +95,13 @@ Two rules of GoTrue's own that the renderer is built around:
 
 ### Environment variables Studio reads
 
-| Variable                            | Default                       | Used for                                                                                           |
-| ----------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| `GOTRUE_CONFIG_DIR`                 | `/etc/gotrue`                 | Where `99_studio.env` is written                                                                   |
-| `STUDIO_AUTH_STATE_DIR`             | `/var/lib/studio`             | Where `auth-config.json` is kept                                                                   |
-| `STUDIO_INTERNAL_URL`               | `http://supabase-studio:3000` | The base of the template URLs GoTrue fetches                                                       |
+| Variable                            | Default                       | Used for                                                                                                                                                                             |
+| ----------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GOTRUE_CONFIG_DIR`                 | `/etc/gotrue`                 | Where `99_studio.env` is written                                                                                                                                                     |
+| `STUDIO_AUTH_STATE_DIR`             | `/var/lib/studio`             | Where `auth-config.json` is kept                                                                                                                                                     |
+| `STUDIO_INTERNAL_URL`               | `http://supabase-studio:3000` | The base of the template URLs GoTrue fetches                                                                                                                                         |
 | `SUPABASE_PUBLIC_URL`               | `''`                          | Builds each provider's `GOTRUE_EXTERNAL_<PROVIDER>_REDIRECT_URI`. Unset, no callback is written and whatever the auth container already has stands. Already set by the stock compose |
-| the 20 names in `MIRRORED_ENV_KEYS` | —                             | What a `GET` answers with before anything has been saved                                           |
+| the 20 names in `MIRRORED_ENV_KEYS` | —                             | What a `GET` answers with before anything has been saved                                                                                                                             |
 
 ## Coolify compose changes
 
@@ -276,12 +282,340 @@ Studio's state and replaced by a rename, so the hand-added line is gone and the 
   template without making a request. The endpoint's 404 is the fallback for the window in which
   GoTrue still holds the old URL — between a reset and the reload, or until a cached template
   ages out. Do not expose that path through Kong or any public proxy.
-- **Only the Next build ships.** All five fork routes have TanStack mirrors and are registered in
-  `routeTree.gen.ts`, but the publish workflow builds the Next target only. Nothing in CI builds
-  or exercises the TanStack variant of these routes.
+- **Only the Next build ships.** Every fork route has a TanStack mirror registered in
+  `routeTree.gen.ts` — the five here and the six stage 2 adds — but the publish workflow builds the
+  Next target only. Nothing in CI builds or exercises the TanStack variant of these routes.
 - **Two concurrent saves can lose one.** Each file is written atomically, but the
   read-modify-write of `auth-config.json` is not locked. Fine for one admin, not for several
   saving at once.
+
+## Stage 2: Realtime, Storage, S3, Data API, Connection pooling
+
+Five more settings pages, un-hidden the same way and backed by four new modules under
+`apps/studio/lib/api/self-hosted/service-config/`. None of it is a second copy of something stage 1
+built: the JSON state file, the env-file renderer and the error classes are the ones from
+`auth-config/`, widened where they had to be.
+
+The four services apply a save differently, and that is the thing to know before using these pages.
+
+| Page                                                             | How a save is applied                                                                                                                                                                                            | Live at run time?                                                 | What the operator does                                                                            |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Data API** — `/project/default/integrations/data_api/overview` | `ALTER ROLE authenticator IN DATABASE "<POSTGRES_DB>" SET pgrst.<setting>`, then `NOTIFY pgrst, 'reload config'` and `NOTIFY pgrst, 'reload schema'`                                                             | Yes, at once                                                      | Nothing                                                                                           |
+| **Connection pooling** — Database → Settings                     | `PUT /api/tenants/<POOLER_TENANT_ID>` on Supavisor's admin API                                                                                                                                                   | Yes, at once — and every pooled client session is dropped with it | Nothing                                                                                           |
+| **Realtime** — Realtime → Settings                               | `PUT /api/tenants/<REALTIME_TENANT_ID>` on Realtime's admin API. Studio also keeps the saved values in `realtime-config.json` and re-applies them on the next read whenever the live tenant has drifted off them | Yes, at once                                                      | Nothing. A Realtime restart re-seeds the tenant and loses them; the next page load puts them back |
+| **Storage settings** — Storage → Files → Settings                | `storage.env`, rendered into `STORAGE_CONFIG_DIR`                                                                                                                                                                | **No**                                                            | **Restart `supabase-storage`**                                                                    |
+| **S3 access keys** — Storage → S3                                | the same `storage.env`                                                                                                                                                                                           | **No**                                                            | **Restart `supabase-storage`**                                                                    |
+
+**New backend** — `apps/studio/lib/api/self-hosted/service-config/`:
+
+| Module         | Owns                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `postgrest.ts` | The Data API settings as `pgrst.*` role settings in the database, plus `getExposedSchemas()` for everything else that needs that list        |
+| `supavisor.ts` | The pooling settings, read and written through Supavisor's admin API. Studio keeps no copy of them                                           |
+| `realtime.ts`  | The Realtime settings: live values read from `_realtime.tenants`, writes through the admin API, the desired values in `realtime-config.json` |
+| `storage.ts`   | The Storage settings and the one S3 key pair: `storage-config.json`, rendered to `storage.env`                                               |
+| `jwt.ts`       | `signHs256Jwt` — the bearer token Supavisor and Realtime each verify against their own `API_JWT_SECRET`                                      |
+| `http.ts`      | `adminFetch` — one request to a service's admin API, 10 s timeout, every failure one error class                                             |
+| `errors.ts`    | `ServiceConfigValidationError` (a 400), `ServiceUnavailableError` (a 502), `ServiceConfigNotFoundError` (a 404)                              |
+
+Each module has a `*.test.ts` beside it. `auth-config/state.ts` grew `readJsonState(fileName, dir?)`
+and `writeJsonState(fileName, state, dir?)` — `readState`/`writeState` are now wrappers over them —
+and `auth-config/render.ts`'s `writeEnvFile` grew an optional file name, so `storage.env` and
+`99_studio.env` go through one renderer.
+
+**New API handlers** under `apps/studio/pages/api/platform/`, each with a TanStack mirror at the
+matching path under `apps/studio/routes/api/platform/` and a test under `apps/studio/tests/pages/`:
+
+| Route                                | Methods                                                             |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `projects/[ref]/config/postgrest.ts` | `GET`, and a `PATCH` that is new — the route itself already existed |
+| `projects/[ref]/config/pgbouncer.ts` | `GET`, `PATCH`                                                      |
+| `projects/[ref]/config/supavisor.ts` | `GET` — this is the one the Connect sheet reads                     |
+| `projects/[ref]/config/realtime.ts`  | `GET`, `PATCH`                                                      |
+| `projects/[ref]/config/storage.ts`   | `GET`, `PATCH`                                                      |
+| `storage/[ref]/credentials/index.ts` | `GET`, `POST`                                                       |
+| `storage/[ref]/credentials/[id].ts`  | `DELETE`                                                            |
+
+`pages/api/platform/database/[ref]/pooling.ts` and its TanStack mirror are deleted. Nothing
+referenced either, and the pooling pages read the two routes above instead.
+
+**The gate edits** — fifteen upstream files, most with a comment on the spot saying why:
+
+| Page               | Files                                                                                                                                                                                                                                                                                                                                       | Change                                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data API           | `components/interfaces/Settings/API/PostgrestConfig.tsx`, `pages/project/[ref]/settings/api.tsx`                                                                                                                                                                                                                                            | The save is gated on the permission alone rather than on `IS_PLATFORM`, and both environments now redirect to the Data API integration page                                  |
+| Connection pooling | `data/database/pgbouncer-config-query.ts`, `data/database/supavisor-configuration-query.ts`, `pages/project/[ref]/database/settings.tsx`, `components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.tsx`                                                                                                                 | Both queries run self-hosted, the database settings page renders the pooling card, and the pool-size copy stops quoting a compute size the self-hosted project does not have |
+| Realtime           | `data/realtime/realtime-config-query.ts`, `components/layouts/RealtimeLayout/RealtimeMenu.utils.ts`                                                                                                                                                                                                                                         | The query runs self-hosted and the Settings entry is always in the menu                                                                                                      |
+| Storage and S3     | `data/config/project-storage-config-query.ts`, `data/storage/s3-access-key-query.ts`, `components/layouts/StorageLayout/StorageBucketsLayout.tsx`, `components/interfaces/Storage/StorageMenuV2.tsx`, `components/interfaces/Storage/StorageSettings/StorageSettings.tsx`, `components/interfaces/Storage/StorageSettings/S3Connection.tsx` | Both queries run self-hosted, the Settings tab and the S3 group are unconditional, and both pages carry an admonition saying a restart is what applies a save                |
+| All five           | `pages/api/platform/organizations/index.ts`                                                                                                                                                                                                                                                                                                 | The organisation stub reports `usage_billing_enabled: true`. Nobody is billed self-hosted, and a missing flag reads as "spend cap on" and disables every usage-based input   |
+
+**Also modified:** `apps/studio/turbo.jsonc` (eleven new names),
+`apps/studio/routeTree.gen.ts` (six routes added, one removed),
+`apps/studio/.github/eslint-rule-baselines.json`, and three callers that now take the exposed-schema
+list from the database rather than from `PGRST_DB_SCHEMAS` — `lib/api/self-hosted/mcp.ts` (the
+security and performance advisors), `lib/api/self-hosted/generate-types.ts`, and
+`pages/api/platform/projects/[ref]/run-lints.ts`.
+
+### How it works
+
+Four services, four different answers to "where does the setting live".
+
+1. **Data API — the database is the record.** PostgREST reads `pgrst.*` settings off the
+   `authenticator` role and picks up a change on a `NOTIFY`, so there is nothing for Studio to
+   remember. A `GET` reads `pg_db_role_setting`, preferring the row scoped to this database over a
+   global one, and falls back field by field to `PGRST_DB_SCHEMAS`, `PGRST_DB_MAX_ROWS` and
+   `PGRST_DB_EXTRA_SEARCH_PATH`. A `PATCH` writes only the fields the body names, then sends both
+   reload notifications.
+2. **Connection pooling — Supavisor is the record.** A `GET` reads the tenant named by
+   `POOLER_TENANT_ID`. A `PATCH` reads it, replaces `default_pool_size` and `default_max_clients`,
+   and `PUT`s the whole tenant back, because Supavisor's changeset validates the whole thing and
+   would reject a body carrying only the changed field. Studio keeps no copy.
+3. **Realtime — the tenant is the record, with a memory beside it.** Live values are read from
+   `_realtime.tenants` over pg-meta; writes go through the admin API, because an `UPDATE` on the
+   table would leave every running Realtime node serving its cached copy. The values the operator
+   asked for also go into `realtime-config.json`, and a read that finds the tenant has drifted from
+   them re-applies them before answering. That is what survives a Realtime restart, whose seed
+   deletes the tenant and inserts a fresh one.
+4. **Storage — nothing can be told anything.** `storage-api` reads its upload limit, its
+   image-transformation flag, its S3-protocol flag and its S3 key pair once, at process start, and
+   has no admin API and no config table behind them. So a save records the settings in
+   `storage-config.json`, renders `storage.env`, and the operator restarts the container, whose
+   `command` sources that file before it execs the server. Both pages say so, above the form.
+
+Reads that need the database go through pg-meta on the read-write connection
+(`POSTGRES_USER_READ_WRITE`), because `_realtime` is Realtime's own schema and the read-only role is
+not granted on it. Nothing on those paths writes.
+
+Both JSON files sit in `STUDIO_AUTH_STATE_DIR` — the `studio-auth-state` volume stage 1 already
+mounts — at mode 0600. `storage.env` goes to `STORAGE_CONFIG_DIR` at mode 0644. Every one of them is
+written to a temporary name and renamed, so a reader never sees a half-written file.
+
+### Environment variables Studio reads
+
+All eleven are new to `turbo.jsonc`; none is required, and every default below is the one in the
+code.
+
+| Variable                                                     | Default                                         | Used for                                                                                          |
+| ------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `SUPAVISOR_URL`                                              | `http://supabase-supavisor:4000`                | Supavisor's admin API                                                                             |
+| `POOLER_TENANT_ID`                                           | `dev_tenant`                                    | The tenant the pooling page reads and writes                                                      |
+| `POOLER_PROXY_PORT_TRANSACTION`                              | `6543`                                          | The port every pooler connection string names                                                     |
+| `REALTIME_URL`                                               | `http://realtime-dev:4000`                      | Realtime's admin API                                                                              |
+| `REALTIME_TENANT_ID`                                         | `realtime-dev`                                  | The tenant the Realtime page reads and writes                                                     |
+| `STORAGE_CONFIG_DIR`                                         | `/etc/studio-config`                            | Where `storage.env` is written                                                                    |
+| `UPLOAD_FILE_SIZE_LIMIT`                                     | `52428800`                                      | What the Storage settings page shows before anything has been saved                               |
+| `ENABLE_IMAGE_TRANSFORMATION`                                | off — only the exact string `true` turns it on  | Same                                                                                              |
+| `S3_PROTOCOL_ENABLED`                                        | on — only the exact string `false` turns it off | Same                                                                                              |
+| `S3_PROTOCOL_ACCESS_KEY_ID`, `S3_PROTOCOL_ACCESS_KEY_SECRET` | —                                               | The key pair the S3 page lists before anything has been saved. Both must be set, or it lists none |
+
+Names that stage 1 or the stock compose already sets are read here too. `AUTH_JWT_SECRET` (signs the
+bearer token for both admin APIs, and must equal the stack's `JWT_SECRET`, which is what Supavisor
+and Realtime hold as `API_JWT_SECRET`), `SUPABASE_PUBLIC_URL` (default `http://localhost:8000` — the
+host in every pooler connection string), `POSTGRES_DB` (default `postgres` — the database a Data API
+write is scoped to), and `PGRST_DB_SCHEMAS` / `PGRST_DB_MAX_ROWS` / `PGRST_DB_EXTRA_SEARCH_PATH`
+(defaults `public,graphql_public`, `1000` and `public` — the Data API fallbacks for a setting the
+database does not carry).
+
+### Coolify compose changes
+
+On top of stage 1's block. One new bind mount, shared by two services, and the mirrored settings.
+
+<!-- prettier-ignore -->
+```yaml
+services:
+  supabase-studio:
+    volumes:                  # add
+      - './volumes/studio-config:/etc/studio-config'
+    environment:              # add
+      - STORAGE_CONFIG_DIR=/etc/studio-config
+      - 'SUPAVISOR_URL=http://supabase-supavisor:4000'
+      - 'POOLER_TENANT_ID=${POOLER_TENANT_ID:-dev_tenant}'
+      - 'POOLER_PROXY_PORT_TRANSACTION=${POOLER_PROXY_PORT_TRANSACTION:-6543}'
+      - 'REALTIME_URL=http://realtime-dev:4000'
+      - REALTIME_TENANT_ID=realtime-dev
+      - UPLOAD_FILE_SIZE_LIMIT=524288000
+      - ENABLE_IMAGE_TRANSFORMATION=true
+      - S3_PROTOCOL_ENABLED=true
+
+  supabase-storage:
+    volumes:                  # add
+      - './volumes/studio-config:/etc/studio-config:ro'
+    command:                  # add (image has no ENTRYPOINT; CMD is node dist/start/server.js)
+      - sh
+      - '-c'
+      - 'set -a; [ -f /etc/studio-config/storage.env ] && . /etc/studio-config/storage.env; set +a; exec node dist/start/server.js'
+```
+
+As in stage 1, this is list-style (`- KEY=value`) because that is the form the Coolify Supabase
+template uses. Convert to `KEY: value` if the compose you are editing writes `environment:` as a
+mapping, and never mix the two under one service.
+
+Seven things about that block:
+
+- **The sourced file is what overrides the compose `environment:`.** The container's environment is
+  in place before the `command` runs, and `set -a` plus `.` writes over it. That is the whole
+  mechanism: it is how a dashboard save reaches a service that reads its configuration once at
+  start.
+- **`set -a` is not optional.** `renderEnvFile` emits bare `KEY="value"` lines with no `export`,
+  which a POSIX shell makes shell-local rather than environment. Without `set -a` the storage server
+  starts on the compose values and every save is silently a no-op — the worst failure this page has,
+  because nothing reports it. The `[ -f … ]` guard is what lets the container start before Studio
+  has ever written the file, and `exec` is what keeps the server as PID 1 so signals still reach it.
+- **Check the image's entrypoint before pasting the `command`.** The comment reflects
+  `supabase/storage-api` as it ships today;
+  `docker inspect --format '{{json .Config}}' supabase/storage-api:<tag>` says what your tag
+  actually has. If the image gains an `ENTRYPOINT`, this block belongs under `entrypoint:` instead,
+  or the shell line becomes an argument to it.
+- **The mirrored values must match what `supabase-storage` is really running.**
+  `UPLOAD_FILE_SIZE_LIMIT`, `ENABLE_IMAGE_TRANSFORMATION` and `S3_PROTOCOL_ENABLED` on the _Studio_
+  container are not read by storage-api — they are what Studio answers the first `GET` with, before
+  anything has been saved, so that the page opens on the truth. The `524288000` above is 500 MB;
+  upstream's compose ships a 50 MB limit and spells it `FILE_SIZE_LIMIT` on the storage service
+  (`docker/docker-compose.yml:373`). It is the number that has to agree, not the name.
+- **`./volumes/studio-config` is created by Docker on the first start**, because that is what a
+  short-syntax bind mount does when the host path is missing. It is created root-owned; Studio's
+  container runs as root and writes `storage.env` into it at mode 0644. Storage only reads it, which
+  is what the `:ro` on its mount says.
+- **The two service URLs have to name the services as your compose file spells them.** The defaults
+  above are the Coolify template's names. A stack built from upstream's `docker/docker-compose.yml`
+  calls them `supavisor` (container `supabase-pooler`) and `realtime` (container
+  `realtime-dev.supabase-realtime`), and would need `SUPAVISOR_URL=http://supavisor:4000` and
+  `REALTIME_URL=http://realtime:4000`. One command below tells you which you have.
+- **Stage 1's `studio-auth-state` volume is required here too.** `realtime-config.json` and
+  `storage-config.json` live in it, beside `auth-config.json`. Stage 2 adds no state volume of its
+  own.
+
+### Verifying a deployment
+
+**Data API.** Set "Max rows" to 3 and save, then ask PostgREST for a table with more rows than that:
+
+```bash
+curl -s "<public url>/rest/v1/<table>?select=*" -H "apikey: <anon key>" | jq length
+```
+
+Expected: `3`. The reload is a `NOTIFY` sent in the same statement, so it is live by the time the
+save returns.
+
+**Connection pooling and Realtime.** Both admin APIs want a bearer token signed with the secret
+Studio holds as `AUTH_JWT_SECRET`. This mints the same token Studio does — it is
+`lib/api/self-hosted/service-config/jwt.ts` written out longhand — and reads the tenant back:
+
+```bash
+docker exec <studio-container> node -e '
+const { createHmac } = require("node:crypto")
+const b64 = (value) => Buffer.from(value, "utf8").toString("base64url")
+const now = Math.floor(Date.now() / 1000)
+const head = b64(JSON.stringify({ alg: "HS256", typ: "JWT" }))
+const claims = b64(JSON.stringify({ iat: now, exp: now + 300 }))
+const sig = createHmac("sha256", process.env.AUTH_JWT_SECRET)
+  .update(head + "." + claims)
+  .digest("base64url")
+const [base, tenant] =
+  process.argv[1] === "realtime"
+    ? [process.env.REALTIME_URL || "http://realtime-dev:4000",
+       process.env.REALTIME_TENANT_ID || "realtime-dev"]
+    : [process.env.SUPAVISOR_URL || "http://supabase-supavisor:4000",
+       process.env.POOLER_TENANT_ID || "dev_tenant"]
+fetch(base + "/api/tenants/" + tenant, {
+  headers: { Authorization: "Bearer " + head + "." + claims + "." + sig },
+})
+  .then((r) => r.json())
+  .then((body) => console.log(JSON.stringify(body.data, null, 2)))
+' supavisor
+```
+
+Change the pool size on Database → Settings, run it, and `default_pool_size` on the tenant is the
+new number. Run it again with `realtime` in place of `supavisor` after changing a rate limit on
+Realtime → Settings.
+
+A 401 or 403 means the Studio container's `AUTH_JWT_SECRET` is not the stack's `JWT_SECRET`. A
+refused connection means the URL names a host the compose network does not have — see the note above
+about service names. Realtime's admin API serialises only five of its nine settings columns;
+`max_bytes_per_second`, `max_presence_events_per_second`, `max_payload_size_in_kb` and `suspend` are
+not among them, and Studio reads those straight from `_realtime.tenants`, so for those four the page
+itself is the check.
+
+**Storage.** A save writes the file. The restart is what applies it.
+
+```bash
+docker exec <studio-container> cat /etc/studio-config/storage.env
+docker exec <storage-container> env | grep UPLOAD_FILE_SIZE_LIMIT
+```
+
+Before the restart those two disagree; after a Restart of `supabase-storage` in Coolify they agree.
+If the second prints nothing at all after a restart, the `command:` lost its `set -a` and every save
+is a silent no-op. The same check with `S3_PROTOCOL_ACCESS_KEY_ID` covers the S3 page; an S3 client
+signing with the key the page shows can list buckets once the restart is through.
+
+### Known limitations
+
+- **Realtime's `connection_pool`, `postgres_changes_pool` and `presence_enabled` are stored but
+  never applied.** They are in the platform's config contract and round-trip through the UI, but
+  none of the three is a column on Realtime's tenant, so nothing is ever sent. `presence_enabled`
+  the form does not send at all; only a direct API call can set it.
+- **One S3 access key, ever.** Self-hosted storage-api authenticates the S3 protocol against a
+  single `S3_PROTOCOL_ACCESS_KEY_ID`/`_SECRET` pair from its environment — there is no table of keys
+  — so the create endpoint refuses a second key while one is live rather than silently replacing the
+  first. Revoking stores a tombstone rather than dropping the record, because Studio's own container
+  still carries the compose `S3_PROTOCOL_ACCESS_KEY_ID` and without it the next read would present a
+  key storage no longer accepts.
+- **The S3 secret sits in plain text in two places.** `storage-config.json` at mode 0600 in the
+  `studio-auth-state` volume, and `storage.env` at mode 0644 on the host bind mount. The same stance
+  as stage 1's `99_studio.env`, which already carries SMTP passwords and OAuth client secrets.
+- **The region on the S3 page is `local`, and it is not storage-api's setting.** It comes from
+  Studio's self-hosted project stub (`lib/constants/api.ts:22`). storage-api signs against its own
+  `STORAGE_S3_REGION` — `us-east-1` unless the compose file says otherwise — and does not enforce a
+  region match, so any region signs and the one the page shows works. Use it, and do not read it as
+  a report of what the storage service is configured with. That variable is storage-api's and
+  nothing in this repository reads it, so check it against your compose file if an S3 client ever
+  rejects a signature.
+- **The Data API settings override the `PGRST_*` compose variables from the first save on.** An
+  in-database `pgrst.*` role setting beats the container environment, so changing `PGRST_DB_SCHEMAS`
+  or `PGRST_DB_MAX_ROWS` in Coolify after a save from the dashboard will look like it did nothing.
+  The same shape as stage 1's "the UI wins over Coolify", for the same kind of reason.
+- **`db_pool` and `db_pool_acquisition_timeout` are read-only self-hosted.** PostgREST's `db-pool`
+  is neither reloadable nor an in-database setting, so there is nothing a save could write that
+  PostgREST would read. The field is disabled with the placeholder `Set by PGRST_DB_POOL`, a body
+  carrying either key is accepted and moves neither, and a `GET` answers `null`. The citation is at
+  the top of `service-config/postgrest.ts`.
+- **A pooling save drops every pooled client session.** Supavisor purges its caches and terminates
+  the tenant's pools on a successful write, which is also why the new pool size applies without a
+  restart. Applications reconnect; a transaction in flight does not.
+- **A pooling save also rewrites Supavisor's user rows.** The admin API does not return a user's id
+  and the tenant's `users` association replaces on write, so each save deletes the old rows and
+  inserts equivalent ones with fresh ids and timestamps. Same user, same password, same mode.
+- **A tenant with `upstream_ssl` and `upstream_verify: "peer"` cannot be saved.** Supavisor never
+  serialises `upstream_tls_ca` back, so the full changeset a `PUT` needs cannot be reassembled, and
+  the save returns a 502 carrying Supavisor's own refusal. The default self-hosted stack has
+  `upstream_ssl: false` and never meets this.
+- **Some pooling fields are echoed, not stored.** `pool_mode`, `ignore_startup_parameters`,
+  `pgbouncer_enabled`, `query_wait_timeout`, `reserve_pool_size`, `server_idle_timeout` and
+  `server_lifetime` are in the platform's contract and have no Supavisor counterpart. A save
+  carrying them is accepted and they go nowhere. Only `default_pool_size` and `max_client_conn`
+  move.
+- **A Realtime restart loses the settings until the next page load.** The container's seed deletes
+  the tenant and inserts a fresh one carrying only a name, a JWT secret and the CDC extension. The
+  next read of Realtime → Settings notices the drift and re-applies what Studio saved — but between
+  the restart and that page load, Realtime runs on its seeded defaults.
+- **A Realtime re-apply that fails is only in the log.** If the write cannot land, the page still
+  answers, with the values the operator asked for, and the Studio container's log carries a
+  `[realtime-config]` warning. Nothing in the UI says the numbers on screen are not the ones
+  running.
+- **A Data API `GET` now depends on the database.** The old handler answered from the container
+  environment and could not fail. Reading the role settings means that page shows an error while
+  pg-meta or Postgres is down, rather than showing values that may be wrong.
+- **`POSTGRES_DB` has to be a plain identifier.** A Data API write scopes the role setting with
+  `IN DATABASE "<name>"`, and the name is checked against `/^[A-Za-z_][A-Za-z0-9_]*$/` and 63
+  characters before it is quoted in, because it is interpolated rather than bound. A hyphenated
+  database name is refused with a message naming the variable. Supabase ships `postgres`.
+- **The key from the container environment reports as created today.** The compose
+  `S3_PROTOCOL_ACCESS_KEY_ID` carries no creation time, so the S3 table renders "Today" for a key
+  that may be months old. The description column reads `From container environment`, which is the
+  honest signal.
+- **Two concurrent saves can lose one.** `realtime-config.json` and `storage-config.json` are each
+  written atomically, but the read-modify-write around them is not locked — the same limitation
+  stage 1 records for `auth-config.json`, and now also reachable by a Storage settings save racing
+  an S3 key revoke.
 
 ## Updating from upstream
 
@@ -319,11 +653,11 @@ The workflow pins the framework, passing `STUDIO_FRAMEWORK=next` as a build-arg 
 relying on the default in `apps/studio/Dockerfile`. Upstream owns that default, and this fork
 builds and tests only the Next routes, so the pin is what stops a rebase from quietly switching
 the published image to the TanStack build. Leave it in place unless you have also built and
-exercised the TanStack variant of the five fork routes.
+exercised the TanStack variant of the fork's own routes.
 
 Two things to re-check after any rebase that touches auth:
 
-- The four gate edits above are the ones most likely to conflict, since upstream owns those
-  files.
+- The gate edits are the ones most likely to conflict, since upstream owns those files: the four
+  in stage 1 and the fifteen in stage 2.
 - `apps/studio/routeTree.gen.ts` is generated. If it conflicts, take upstream's version and
   regenerate rather than merging by hand.

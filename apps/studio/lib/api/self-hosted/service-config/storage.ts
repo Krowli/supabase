@@ -225,6 +225,9 @@ const resolveSettings = async (): Promise<ResolvedSettings> => settingsFromState
  *
  * `UPLOAD_FILE_SIZE_LIMIT_STANDARD` carries the same number: storage-api reads the first for
  * resumable uploads and the second for standard ones, and the settings page offers one limit.
+ * `FILE_SIZE_LIMIT` is the third spelling of that number — the one upstream's own compose file uses
+ * on the storage service (`docker/docker-compose.yml`), where a stack built from it rather than from
+ * the Coolify template would otherwise keep its compose limit through every save.
  * `IMAGE_TRANSFORMATION_ENABLED` is the same flag under its other accepted name, written so the file
  * does not depend on which one the running version prefers.
  *
@@ -235,6 +238,7 @@ const resolveSettings = async (): Promise<ResolvedSettings> => settingsFromState
 async function renderStorageEnv(settings: ResolvedSettings): Promise<void> {
   const limit = String(settings.fileSizeLimit)
   const content = renderEnvFile({
+    FILE_SIZE_LIMIT: limit,
     UPLOAD_FILE_SIZE_LIMIT: limit,
     UPLOAD_FILE_SIZE_LIMIT_STANDARD: limit,
     ENABLE_IMAGE_TRANSFORMATION: String(settings.imageTransformation),
@@ -412,17 +416,33 @@ function generateAccessKey(): string {
 const generateSecretKey = (): string => randomBytes(30).toString('base64url')
 
 /**
+ * A label, not a document. The description is written into `storage-config.json` and rendered back
+ * into the S3 page's table; nothing truncates it on the way, so the bound is here.
+ */
+const MAX_CREDENTIAL_DESCRIPTION_LENGTH = 200
+
+/**
  * Issues the one S3 key pair this storage can hold.
  *
  * Single-tenant storage-api authenticates the S3 protocol against `S3_PROTOCOL_ACCESS_KEY_ID` and
  * `S3_PROTOCOL_ACCESS_KEY_SECRET` — one pair, from the environment. There is no table of keys to add
  * a second row to, so a second key would silently replace the first.
+ *
+ * The description is stored trimmed: it is what the table shows, and the surrounding whitespace of a
+ * pasted name is not part of the name.
  */
 export async function createCredential(
   description: unknown
 ): Promise<{ id: string; description: string; access_key: string; secret_key: string }> {
   if (typeof description !== 'string' || description.trim() === '') {
     throw new ServiceConfigValidationError('description must be a non-empty string')
+  }
+
+  const label = description.trim()
+  if (label.length > MAX_CREDENTIAL_DESCRIPTION_LENGTH) {
+    throw new ServiceConfigValidationError(
+      `description must be at most ${MAX_CREDENTIAL_DESCRIPTION_LENGTH} characters`
+    )
   }
 
   const state = await readState()
@@ -436,7 +456,7 @@ export async function createCredential(
 
   const credential: StoredCredential = {
     id: randomUUID(),
-    description,
+    description: label,
     access_key: generateAccessKey(),
     secret_key: generateSecretKey(),
     created_at: new Date().toISOString(),

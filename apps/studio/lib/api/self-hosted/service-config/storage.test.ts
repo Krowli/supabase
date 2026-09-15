@@ -203,6 +203,7 @@ describe('api/self-hosted/service-config/storage', () => {
       expect(envFile()).toBe(
         [
           'ENABLE_IMAGE_TRANSFORMATION="true"',
+          'FILE_SIZE_LIMIT="104857600"',
           'IMAGE_TRANSFORMATION_ENABLED="true"',
           'S3_PROTOCOL_ACCESS_KEY_ID=""',
           'S3_PROTOCOL_ACCESS_KEY_SECRET=""',
@@ -212,6 +213,16 @@ describe('api/self-hosted/service-config/storage', () => {
           '',
         ].join('\n')
       )
+    })
+
+    it('writes the limit under the name upstream compose uses as well', async () => {
+      // A stack built from `docker/docker-compose.yml` rather than the Coolify template spells the
+      // limit `FILE_SIZE_LIMIT` on the storage service. Without this line that stack keeps its
+      // compose limit through every save, with nothing saying so.
+      await updateStorageConfig({ fileSizeLimit: 104857600 })
+
+      expect(envMap().FILE_SIZE_LIMIT).toBe('104857600')
+      expect(envMap().UPLOAD_FILE_SIZE_LIMIT).toBe('104857600')
     })
 
     it('keeps the S3 protocol toggle the S3 page saved', async () => {
@@ -300,6 +311,7 @@ describe('api/self-hosted/service-config/storage', () => {
       expect(envFile()).toBe(
         [
           'ENABLE_IMAGE_TRANSFORMATION="true"',
+          'FILE_SIZE_LIMIT="52428800"',
           'IMAGE_TRANSFORMATION_ENABLED="true"',
           'S3_PROTOCOL_ACCESS_KEY_ID=""',
           'S3_PROTOCOL_ACCESS_KEY_SECRET=""',
@@ -491,6 +503,43 @@ describe('api/self-hosted/service-config/storage', () => {
       await expect(createCredential(value)).rejects.toThrow(
         'description must be a non-empty string'
       )
+    })
+
+    it('stores the description trimmed', async () => {
+      // It is what the S3 table renders; the whitespace around a pasted name is not the name.
+      const created = await createCredential('  production  ')
+
+      expect(created.description).toBe('production')
+
+      const { data } = await listCredentials()
+      expect(data[0].description).toBe('production')
+    })
+
+    it('refuses a description longer than 200 characters', async () => {
+      await expect(createCredential('a'.repeat(201))).rejects.toBeInstanceOf(
+        ServiceConfigValidationError
+      )
+      await expect(createCredential('a'.repeat(201))).rejects.toThrow(
+        'description must be at most 200 characters'
+      )
+    })
+
+    it('takes a description of exactly 200 characters', async () => {
+      const created = await createCredential('a'.repeat(200))
+
+      expect(created.description).toHaveLength(200)
+    })
+
+    it('measures the length after trimming', async () => {
+      const created = await createCredential(`  ${'a'.repeat(200)}  `)
+
+      expect(created.description).toBe('a'.repeat(200))
+    })
+
+    it('writes nothing when the description is refused', async () => {
+      await expect(createCredential('a'.repeat(201))).rejects.toThrow(ServiceConfigValidationError)
+
+      expect((await listCredentials()).data).toEqual([])
     })
   })
 

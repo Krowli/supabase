@@ -238,7 +238,10 @@ Studio's state and replaced by a rename, so the hand-added line is gone and the 
   environment — records the clearing rather than forgetting the setting, and `99_studio.env`
   carries `GOTRUE_SMTP_HOST=""`. The compose value does not answer again. To bring it back, either
   set the value in the dashboard, or delete `auth-config.json` from the `studio-auth-state`
-  volume, which discards every dashboard change at once.
+  volume, which discards every dashboard change at once. Only text settings clear all the way
+  through: a number or a toggle cleared from the dashboard reads as cleared there but keeps its last
+  value in GoTrue until `supabase-auth` is restarted, because in a GoTrue field that is not a string
+  neither an empty value nor a `0` can stand for "unset".
 - **OAuth callbacks need `SUPABASE_PUBLIC_URL` on the Studio container.** Without it Studio writes
   no `GOTRUE_EXTERNAL_<PROVIDER>_REDIRECT_URI` at all, and GoTrue refuses the sign-in with
   `missing redirect URI` unless the auth container's own environment supplies one. The stock

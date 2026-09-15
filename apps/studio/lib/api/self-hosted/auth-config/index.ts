@@ -2,7 +2,7 @@ import { components } from 'api-types'
 
 import { COMPUTED_KEYS, DEFAULTS, NULL_BY_DEFAULT, TEMPLATE_IDS } from './defaults'
 import { PLATFORM_CONFIG_TYPES } from './keys.generated'
-import { MANAGED_KEYS, toEnv } from './mapping'
+import { MANAGED_KEYS, STRING_TYPED_KEYS, toEnv } from './mapping'
 import { getConfigDir, renderEnvFile, writeEnvFile } from './render'
 import { AuthConfigState, readState, writeState } from './state'
 import { validatePatch } from './validate'
@@ -188,14 +188,24 @@ export async function getAuthConfig(): Promise<GoTrueConfigResponse> {
  * not in it — `EXTERNAL_WORKOS_ENABLED` and the four `EXTERNAL_X_*` — because `UpdateGoTrueConfigBody`
  * declares them and `GoTrueConfigResponse` does not. They have real GoTrue fields, so the state's
  * own copy is folded in here; without it the UI saves a WorkOS or X provider that is stored, read
- * back as configured, and never turned on in GoTrue. Keys the GET already resolved keep the value
- * it resolved — that is where a tombstone became `''` rather than staying `null`.
+ * back as configured, and never turned on in GoTrue.
+ *
+ * A cleared key is the other thing the raw state says that the resolved config cannot. Only a
+ * string-typed GoTrue field can be cleared through this file, as `KEY=""`; for every other field an
+ * empty value fails the whole reload, and the `0` or `false` the GET reports for a cleared key is a
+ * real value to GoTrue rather than an absence — `GOTRUE_RATE_LIMIT_EMAIL_SENT=0` does not mean "no
+ * limit", it stops every email. So those keys are left out of the file entirely and GoTrue keeps
+ * the last value it read until the container restarts, which is the safer of the two wrong answers.
  */
 async function writeGoTrueEnv(config: GoTrueConfigResponse, state: AuthConfigState): Promise<void> {
   const merged: Record<string, unknown> = { ...config }
 
   for (const [key, value] of Object.entries(state)) {
-    if (MANAGED_KEYS.has(key) && !(key in merged)) merged[key] = value
+    if (!MANAGED_KEYS.has(key)) continue
+
+    // `toEnv` skips a null, which is how a cleared non-string key leaves the file.
+    if (value === null) merged[key] = STRING_TYPED_KEYS.has(key) ? '' : null
+    else if (!(key in merged)) merged[key] = value
   }
 
   const env = toEnv(merged, {
@@ -214,6 +224,8 @@ async function writeGoTrueEnv(config: GoTrueConfigResponse, state: AuthConfigSta
  * the UI just cleared answers again — "Disable SMTP" sending `SMTP_HOST: null` and getting the old
  * host straight back. A stored `null` resolves to the empty value of the key's type instead, which
  * `toEnv` writes as `KEY=""` for a string-typed key, and GoTrue's sticky value is actually gone.
+ * A cleared number or toggle is only cleared in Studio: see `writeGoTrueEnv` for why the file
+ * cannot carry it.
  *
  * An empty `SMTP_PASS` is dropped rather than stored — the UI sends the field back empty because it
  * never received the password it is editing, and storing that would clear it.

@@ -220,6 +220,50 @@ describe('api/self-hosted/auth-config/index', () => {
       expect((await updateAuthConfig({ JWT_EXP: null })).JWT_EXP).toBe(0)
     })
 
+    it('leaves a cleared number out of the env file rather than writing a zero', async () => {
+      // `GOTRUE_RATE_LIMIT_EMAIL_SENT=0` is not "no limit" to GoTrue — it stops every email — and
+      // `=""` would fail the reload for the whole file. Neither can stand for "cleared", so the key
+      // leaves the file and GoTrue keeps the 30 until the container restarts.
+      await updateAuthConfig({ RATE_LIMIT_EMAIL_SENT: 30 })
+      expect(readEnvFile()).toContain('GOTRUE_RATE_LIMIT_EMAIL_SENT="30"')
+
+      const config = await updateAuthConfig({ RATE_LIMIT_EMAIL_SENT: null })
+
+      expect(config.RATE_LIMIT_EMAIL_SENT).toBe(0)
+      expect(readEnvFile()).not.toContain('GOTRUE_RATE_LIMIT_EMAIL_SENT')
+    })
+
+    it('leaves a cleared toggle out of the env file rather than writing a false', async () => {
+      await updateAuthConfig({ MAILER_AUTOCONFIRM: true })
+      expect(readEnvFile()).toContain('GOTRUE_MAILER_AUTOCONFIRM="true"')
+
+      const config = await updateAuthConfig({ MAILER_AUTOCONFIRM: null })
+
+      expect(config.MAILER_AUTOCONFIRM).toBe(false)
+      expect(readEnvFile()).not.toContain('GOTRUE_MAILER_AUTOCONFIRM')
+    })
+
+    it('still clears a string-typed key through the file, which is the one GoTrue accepts', async () => {
+      // The counterpart of the two above: `""` is a legal value for a GoTrue `string` field, so a
+      // cleared one does reach the running process.
+      await updateAuthConfig({ SMTP_USER: 'postmaster@example.test' })
+
+      await updateAuthConfig({ SMTP_USER: null })
+
+      expect(readEnvFile()).toContain('GOTRUE_SMTP_USER=""')
+    })
+
+    it('clears a key the update body alone declares, without writing an empty number', async () => {
+      await updateAuthConfig({ EXTERNAL_X_SECRET: 'x-secret', EXTERNAL_X_EMAIL_OPTIONAL: true })
+
+      await updateAuthConfig({ EXTERNAL_X_SECRET: null, EXTERNAL_X_EMAIL_OPTIONAL: null })
+
+      const envFile = readEnvFile()
+
+      expect(envFile).toContain('GOTRUE_EXTERNAL_X_SECRET=""')
+      expect(envFile).not.toContain('GOTRUE_EXTERNAL_X_EMAIL_OPTIONAL')
+    })
+
     it('writes the keys only the update body declares, which a GET never answers for', async () => {
       // `EXTERNAL_WORKOS_ENABLED` and the four `EXTERNAL_X_*` are in `UpdateGoTrueConfigBody` and
       // not in `GoTrueConfigResponse`, so the resolved config has no entry for them. Rendering from

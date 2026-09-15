@@ -37,9 +37,18 @@ const PLAIN_HTTP_HOSTS: ReadonlySet<string> = new Set([
   'localhost',
 ])
 
-/** GoTrue's two webhook secret formats: a symmetric `whsec_`, or an asymmetric `whpk_`/`whsk_` pair. */
-const SYMMETRIC_SECRET = /^v1,whsec_[A-Za-z0-9+/=]+$/
-const ASYMMETRIC_SECRET = /^v1a,whpk_[^:]+:whsk_.+$/
+/**
+ * GoTrue's two webhook secret formats: a symmetric `whsec_`, or an asymmetric `whpk_`/`whsk_` pair.
+ *
+ * Copied character for character from `internal/conf/configuration.go:35-36`, the symmetric one's
+ * missing end anchor included, so Studio accepts exactly what GoTrue's `isValidSecretFormat`
+ * accepts and no more. The lengths carry the meaning: they are the unpadded base64 lengths of a
+ * 24-to-64-byte symmetric secret and of a 32-byte Ed25519 key. A shorter secret — the
+ * `v1,whsec_test` of GoTrue's own doc comment — is refused by the running process, and a refusal
+ * there fails the whole config reload rather than the one hook.
+ */
+const SYMMETRIC_SECRET = /^v1,whsec_[A-Za-z0-9+/=]{32,88}/
+const ASYMMETRIC_SECRET = /^v1a,whpk_[A-Za-z0-9+/=]{44,}:whsk_[A-Za-z0-9+/=]{44,}$/
 
 const isBlank = (value: unknown) => typeof value !== 'string' || value.trim() === ''
 
@@ -233,6 +242,16 @@ function validateCombinations(
       merged.SECURITY_CAPTCHA_PROVIDER !== 'turnstile'
     )
       return fail("SECURITY_CAPTCHA_PROVIDER must be 'hcaptcha' or 'turnstile'")
+  }
+
+  // `SAMLConfiguration.Validate()` (`internal/conf/saml.go:45-52`) demands an RSA private key the
+  // moment SAML is on, and `GOTRUE_SAML_PRIVATE_KEY` is not a platform key — there is no field for
+  // it in the contract, so nothing the UI sends can supply one. Writing the flag anyway fails the
+  // reload, and the next restart of the container crash-loops on the same check.
+  if (touches('SAML_ENABLED') && merged.SAML_ENABLED === true) {
+    return fail(
+      'SAML needs GOTRUE_SAML_PRIVATE_KEY in the auth container environment; it cannot be enabled from here'
+    )
   }
 
   if (

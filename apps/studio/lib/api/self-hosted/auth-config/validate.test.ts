@@ -4,6 +4,11 @@ import { PLATFORM_CONFIG_TYPES } from './keys.generated'
 import { MANAGED_KEYS, PlatformConfig } from './mapping'
 import { validatePatch } from './validate'
 
+/** Base64 of 32 bytes: 44 characters, which is the length GoTrue's hook-secret formats ask for. */
+const SYMMETRIC_SECRET = 'c3R1ZGlvLWZvcmstd2ViaG9vay1zZWNyZXQtMzJieXQ='
+const ED25519_PUBLIC = 'ZWQyNTUxOS1wdWJsaWMta2V5LWJ5dGVzLTMyYnl0ZXM='
+const ED25519_SECRET = 'ZWQyNTUxOS1zZWNyZXQta2V5LWJ5dGVzLTMyYnl0ZXM='
+
 const check = (patch: Record<string, unknown>, current: Record<string, unknown> = {}) =>
   validatePatch(patch, current as PlatformConfig)
 
@@ -412,17 +417,59 @@ describe('api/self-hosted/auth-config/validate', () => {
       )
     })
 
+    it('rejects a secret too short for GoTrue, however well-formed it looks', () => {
+      // `v1,whsec_test` is the example in GoTrue's own doc comment
+      // (`internal/conf/configuration.go:963`) and the running process refuses it: the symmetric
+      // format needs at least the 32 base64 characters of a 24-byte secret.
+      expect(rejection({ HOOK_SEND_EMAIL_SECRETS: 'v1,whsec_test' })).toBe(
+        'HOOK_SEND_EMAIL_SECRETS contains a secret that is not in the v1,whsec_ or v1a,whpk_ format'
+      )
+      expect(rejection({ HOOK_SEND_EMAIL_SECRETS: `v1a,whpk_short:whsk_${ED25519_SECRET}` })).toBe(
+        'HOOK_SEND_EMAIL_SECRETS contains a secret that is not in the v1,whsec_ or v1a,whpk_ format'
+      )
+    })
+
     it('accepts both formats, alone and combined', () => {
+      // 44 base64 characters each: a 32-byte symmetric secret, and the two halves of an Ed25519
+      // key pair, which is the shortest GoTrue takes for the asymmetric form.
       expect(
         check({
-          HOOK_SEND_EMAIL_SECRETS: 'v1,whsec_dGVzdA==|v1a,whpk_publickey:whsk_secretkey',
-          HOOK_SEND_SMS_SECRETS: 'v1,whsec_abc123',
+          HOOK_SEND_EMAIL_SECRETS: `v1,whsec_${SYMMETRIC_SECRET}|v1a,whpk_${ED25519_PUBLIC}:whsk_${ED25519_SECRET}`,
+          HOOK_SEND_SMS_SECRETS: `v1,whsec_${SYMMETRIC_SECRET}`,
         })
       ).toEqual({ ok: true })
     })
 
     it('accepts no secrets at all, which turns signing off', () => {
       expect(check({ HOOK_SEND_EMAIL_SECRETS: '' })).toEqual({ ok: true })
+    })
+  })
+
+  describe('SAML', () => {
+    it('refuses to turn SAML on, which needs a private key only the container can hold', () => {
+      expect(rejection({ SAML_ENABLED: true })).toBe(
+        'SAML needs GOTRUE_SAML_PRIVATE_KEY in the auth container environment; it cannot be enabled from here'
+      )
+    })
+
+    it('refuses it however the rest of the SAML settings arrive', () => {
+      expect(rejection({ SAML_ENABLED: true, SAML_EXTERNAL_URL: 'https://saml.example.com' })).toBe(
+        'SAML needs GOTRUE_SAML_PRIVATE_KEY in the auth container environment; it cannot be enabled from here'
+      )
+    })
+
+    it('accepts turning it off, and the settings that sit beside it', () => {
+      expect(check({ SAML_ENABLED: false })).toEqual({ ok: true })
+      expect(check({ SAML_EXTERNAL_URL: 'https://saml.example.com' })).toEqual({ ok: true })
+      expect(check({ SAML_ALLOW_ENCRYPTED_ASSERTIONS: true })).toEqual({ ok: true })
+    })
+
+    it('leaves a patch that does not name the flag alone, even with SAML stored as on', () => {
+      // The combination rules run only for the keys a patch touches, so one bad stored value
+      // cannot block every later save. A state with SAML on is not reachable through this gate.
+      expect(check({ SITE_URL: 'https://app.example.com' }, { SAML_ENABLED: true })).toEqual({
+        ok: true,
+      })
     })
   })
 

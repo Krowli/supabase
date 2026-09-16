@@ -374,7 +374,6 @@ describe('api/self-hosted/service-config/postgrest', () => {
         db_schema: 'public, newly_exposed',
       })
     })
-
   })
 
   describe('getExposedSchemas when PGRST_DB_SCHEMAS is itself spaced', () => {
